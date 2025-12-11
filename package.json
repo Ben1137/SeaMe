@@ -2,12 +2,12 @@
   "name": "seame",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://Ben1137.github.io/SeaMe/",
+  "homepage": "https://Ben1137.github.io/SeaMe-Live",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "predeploy": "npm run build && mv dist/index.real.html dist/index.html",
+    "predeploy": "npm run build && move /Y dist\\index.real.html dist\\index.html",
     "deploy": "gh-pages -d dist",
     "preview": "vite preview"
   },
