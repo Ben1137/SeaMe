@@ -1,31 +1,15 @@
-import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
-    return {
-      base: '/SeaMe-Live/',
-      server: {
-        port: 3000,
-        host: '0.0.0.0',
-      },
-      plugins: [react()],
-      build: {
-        rollupOptions: {
-            input: {
-                main: path.resolve(__dirname, 'index.real.html')
-            }
-        }
-      },
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
-      },
-      resolve: {
-        alias: {
-          '@': path.resolve(__dirname, '.'),
-        }
-      }
-    };
-});
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  base: '/SeaMe/', // Important: This should match your GitHub repo name
+  build: {
+    outDir: 'dist',
+    sourcemap: true,
+  },
+  optimizeDeps: {
+    exclude: ['lucide-react'],
+  },
+})
