@@ -3,7 +3,9 @@ import { ViewState, Location } from './types';
 import Dashboard from './components/Dashboard';
 import MapComponent from './components/MapComponent';
 import Atmosphere from './components/Atmosphere';
-import { LayoutDashboard, Map as MapIcon, Cloud, Anchor, MapPin, Plus, Search, X, Check } from 'lucide-react';
+import { RoutePlanningView } from './components/RoutePlanningView';
+import { CoastsMarinasView } from './components/CoastsMarinasView';
+import { LayoutDashboard, Map as MapIcon, Cloud, Navigation, Anchor, MapPin, Plus, Search, X, Check } from 'lucide-react';
 import { searchLocations, reverseGeocode } from './services/weatherService';
 import { useMarineData } from './hooks/useMarineData';
 
@@ -240,18 +242,24 @@ const App: React.FC = () => {
         {view === ViewState.ATMOSPHERE && (
           <Atmosphere weatherData={weatherData} />
         )}
+        {view === ViewState.ROUTE_PLANNING && (
+          <RoutePlanningView />
+        )}
+        {view === ViewState.COASTS_MARINAS && (
+          <CoastsMarinasView />
+        )}
       </main>
 
       {/* Bottom Navigation */}
       <div className="bg-slate-900 border-t border-slate-800 p-2 pb-6 z-20">
-        <div className="flex justify-around items-center max-w-lg mx-auto">
+        <div className="flex justify-around items-center max-w-3xl mx-auto">
           <button
             onClick={() => setView(ViewState.DASHBOARD)}
             className={`flex flex-col items-center gap-1 p-2 rounded-lg transition-all ${
               view === ViewState.DASHBOARD ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-slate-300'
             }`}
           >
-            <LayoutDashboard size={24} />
+            <LayoutDashboard size={22} />
             <span className="text-xs font-medium">Dashboard</span>
           </button>
           
@@ -261,7 +269,7 @@ const App: React.FC = () => {
               view === ViewState.MAP ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-slate-300'
             }`}
           >
-            <MapIcon size={24} />
+            <MapIcon size={22} />
             <span className="text-xs font-medium">Map</span>
           </button>
 
@@ -271,8 +279,28 @@ const App: React.FC = () => {
               view === ViewState.ATMOSPHERE ? 'text-purple-400 bg-purple-500/10' : 'text-slate-500 hover:text-slate-300'
             }`}
           >
-            <Cloud size={24} />
+            <Cloud size={22} />
             <span className="text-xs font-medium">Atmosphere</span>
+          </button>
+
+          <button
+            onClick={() => setView(ViewState.ROUTE_PLANNING)}
+            className={`flex flex-col items-center gap-1 p-2 rounded-lg transition-all ${
+              view === ViewState.ROUTE_PLANNING ? 'text-green-400 bg-green-500/10' : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <Navigation size={22} />
+            <span className="text-xs font-medium">Routes</span>
+          </button>
+
+          <button
+            onClick={() => setView(ViewState.COASTS_MARINAS)}
+            className={`flex flex-col items-center gap-1 p-2 rounded-lg transition-all ${
+              view === ViewState.COASTS_MARINAS ? 'text-cyan-400 bg-cyan-500/10' : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <Anchor size={22} />
+            <span className="text-xs font-medium">Marinas</span>
           </button>
         </div>
       </div>
