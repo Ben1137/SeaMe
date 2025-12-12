@@ -2,7 +2,9 @@
 export enum ViewState {
   DASHBOARD = 'DASHBOARD',
   MAP = 'MAP',
-  ATMOSPHERE = 'ATMOSPHERE'
+  ATMOSPHERE = 'ATMOSPHERE',
+  ROUTE_PLANNING = 'ROUTE_PLANNING',
+  COASTS_MARINAS = 'COASTS_MARINAS'
 }
 
 export interface AlertConfig {

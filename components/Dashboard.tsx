@@ -89,35 +89,7 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
   // Graph Tab State
   const [activeGraph, setActiveGraph] = useState<'tide' | 'wave' | 'swell'>('tide');
 
-  // Show loading skeleton while data is being fetched
-  if (loading) {
-    return (
-      <div className="p-4 md:p-6">
-        <DashboardSkeleton />
-      </div>
-    );
-  }
-
-  // Show error state if there's an error
-  if (error) {
-    return (
-      <div className="p-4 md:p-6">
-        <ErrorState error={error} />
-      </div>
-    );
-  }
-
-  // Show message if no data
-  if (!weatherData) {
-    return (
-      <div className="p-4 md:p-6">
-        <div className="text-center text-slate-400 py-12">
-          No weather data available. Please try again.
-        </div>
-      </div>
-    );
-  }
-
+  // All hooks must be called before any conditional returns
   const currentHourIndex = useMemo(() => {
     if (!weatherData?.hourly?.time) return 0;
     const now = new Date();
