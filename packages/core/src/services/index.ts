@@ -3,3 +3,4 @@ export * from './coastsMarinasService';
 export * from './nauticalChartService';
 export * from './offlineNavigationService';
 export * from './routePlanningService';
+export * from './cacheService';
