@@ -1,6 +1,6 @@
 /**
  * Weather Data Cache Service
- * 
+ *
  * Implements intelligent caching for Open-Meteo API responses using IndexedDB.
  * Features:
  * - Stale-while-revalidate pattern
@@ -8,6 +8,8 @@
  * - Automatic cleanup of expired data
  * - 50MB storage limit with LRU eviction
  */
+
+import { CACHE_CONFIG } from '../constants';
 
 interface CacheConfig {
   key: string;
@@ -34,15 +36,15 @@ class WeatherCacheService {
   private storeName = 'weatherData';
   private version = 1;
   private db: IDBDatabase | null = null;
-  private maxSize = 50 * 1024 * 1024; // 50MB
-  
+  private maxSize = CACHE_CONFIG.MAX_SIZE_BYTES;
+
   // Cache TTL configurations
   private readonly TTL = {
-    marine: 30 * 60 * 1000,      // 30 minutes - wave data changes slowly
-    forecast: 60 * 60 * 1000,     // 60 minutes - forecast updates hourly
-    current: 15 * 60 * 1000,      // 15 minutes - current conditions
-    multiModel: 60 * 60 * 1000,   // 60 minutes - model comparison
-    grib: 24 * 60 * 60 * 1000,    // 24 hours - GRIB files
+    marine: CACHE_CONFIG.TTL.MARINE,
+    forecast: CACHE_CONFIG.TTL.FORECAST,
+    current: CACHE_CONFIG.TTL.CURRENT,
+    multiModel: CACHE_CONFIG.TTL.MULTIMODEL,
+    grib: CACHE_CONFIG.TTL.GRIB,
   };
   
   // Cache hit/miss tracking

@@ -1,10 +1,17 @@
 /**
  * COASTS & MARINAS FINDER SERVICE
  * Finds nearby marinas, harbors, and coastal locations using OpenStreetMap
+ *
+ * Now includes retry logic with exponential backoff for:
+ * - Overpass API (with 25-second timeout handling)
+ * - Nominatim API (with rate limit handling)
  */
 
 import type { Marina, CoastSearchOptions, MarinaType } from '../types/navigation';
+import type { OverpassApiResponse, OverpassElement, NominatimApiResponse } from '../types/apiResponses';
 import { calculateDistance, formatDistance } from './routePlanningService';
+import { fetchWithRetry, fetchWithRetrySafe, isTimeoutError, isRateLimitError } from '../utils/fetchWithRetry';
+import { API_ENDPOINTS, NAVIGATION_CONSTANTS, REQUEST_CONFIG, CACHE_CONFIG, ERROR_MESSAGES } from '../constants';
 
 /**
  * Search for nearby marinas and coastal locations
@@ -17,17 +24,24 @@ export const searchNearbyCoasts = async (
 ): Promise<Marina[]> => {
   try {
     // Convert nautical miles to meters for OSM
-    const radiusMeters = options.radius * 1852;
+    const radiusMeters = options.radius * NAVIGATION_CONSTANTS.NAUTICAL_MILE_METERS;
 
     // Build Overpass query
     const query = buildOverpassQuery(lat, lon, radiusMeters, options.types);
 
-    // Query Overpass API
-    const response = await fetch(
-      'https://overpass-api.de/api/interpreter',
+    // Query Overpass API with retry logic and extended timeout
+    // Overpass API can take up to 25 seconds, so we use a custom timeout
+    const response = await fetchWithRetry(
+      API_ENDPOINTS.OVERPASS,
       {
         method: 'POST',
         body: query,
+      },
+      {
+        timeoutMs: REQUEST_CONFIG.OVERPASS_TIMEOUT_SECONDS * 1000, // 25 seconds
+        maxRetries: 2, // Lower retries for long-running queries
+        initialDelayMs: 2000, // Longer initial delay for Overpass
+        logRetries: true,
       }
     );
 
@@ -75,6 +89,16 @@ export const searchNearbyCoasts = async (
   } catch (error) {
     console.error('Error searching coasts:', error);
 
+    // Enhanced error handling with specific messages
+    if (error instanceof Error) {
+      if (isTimeoutError(error)) {
+        console.warn('Overpass API request timed out - returning cached data if available');
+      }
+      if (isRateLimitError(error)) {
+        console.warn('Overpass API rate limit reached - returning cached data if available');
+      }
+    }
+
     // Return cached data if available
     return getCachedCoastalData(lat, lon) || [];
   }
@@ -99,7 +123,7 @@ const buildOverpassQuery = (
 
   // Overpass QL query
   return `
-    [out:json][timeout:25];
+    [out:json][timeout:${REQUEST_CONFIG.OVERPASS_TIMEOUT_SECONDS}];
     (
       node["leisure"="marina"](around:${radiusMeters},${lat},${lon});
       node["harbour"="yes"](around:${radiusMeters},${lat},${lon});
@@ -275,8 +299,8 @@ const getCachedCoastalData = (
     const { timestamp, marinas } = JSON.parse(cached);
     const cacheAge = Date.now() - new Date(timestamp).getTime();
 
-    // Cache valid for 24 hours
-    if (cacheAge < 24 * 60 * 60 * 1000) {
+    // Cache valid for 24 hours (use GRIB TTL as it's also 24 hours)
+    if (cacheAge < CACHE_CONFIG.TTL.GRIB) {
       return marinas;
     }
   } catch (error) {
@@ -309,19 +333,32 @@ export const searchMarinasByName = async (
     // Use Nominatim to search for marinas, beaches, coasts and harbours and merge results
     const typesToSearch = ['marina', 'beach', 'coast', 'harbour'];
 
-    // run the searches in parallel
+    // Run the searches in parallel with retry logic
+    // Nominatim has strict rate limiting (1 req/second), so we use:
+    // - Lower retries to avoid hammering the API
+    // - Longer delays between retries
+    // - fetchWithRetrySafe to handle failures gracefully
     const fetches = typesToSearch.map((t) =>
-      fetch(
-        `https://nominatim.openstreetmap.org/search?` +
+      fetchWithRetrySafe(
+        `${API_ENDPOINTS.NOMINATIM}?` +
           `q=${encodeURIComponent(query + ' ' + t)}&` +
           `format=json&` +
           `limit=20&` +
-          `addressdetails=1`
+          `addressdetails=1`,
+        {},
+        {
+          maxRetries: 2, // Lower retries for rate-limited API
+          initialDelayMs: 2000, // Longer delay to respect rate limits
+          timeoutMs: 15000, // Longer timeout for Nominatim
+          logRetries: true,
+        }
       )
     );
 
     const responses = await Promise.all(fetches);
-    const datas = await Promise.all(responses.map((r) => (r.ok ? r.json() : [])));
+    const datas = await Promise.all(
+      responses.map((r) => (r?.ok ? r.json() : []))
+    );
 
     const results: Marina[] = [];
 
@@ -365,6 +402,17 @@ export const searchMarinasByName = async (
     return results;
   } catch (error) {
     console.error('Error searching marinas:', error);
+
+    // Enhanced error handling with specific messages
+    if (error instanceof Error) {
+      if (isTimeoutError(error)) {
+        console.warn('Nominatim search request timed out');
+      }
+      if (isRateLimitError(error)) {
+        console.warn('Nominatim rate limit reached - please wait before searching again');
+      }
+    }
+
     return [];
   }
 };

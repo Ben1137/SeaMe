@@ -1,18 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { ViewState, Location } from '@seame/core';
+import { ViewState, Location, UI_CONSTANTS, NAVIGATION_CONSTANTS } from '@seame/core';
 import Dashboard from './components/Dashboard';
 import MapComponent from './components/MapComponent';
 import Atmosphere from './components/Atmosphere';
 import { RoutePlanningView } from './components/RoutePlanningView';
 import { CoastsMarinasView } from './components/CoastsMarinasView';
 import { CacheStatusIndicator } from './src/components/CacheStatusIndicator';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { LayoutDashboard, Map as MapIcon, Cloud, Navigation, Anchor, MapPin, Plus, Search, X, Check } from 'lucide-react';
 import { searchLocations, reverseGeocode } from '@seame/core';
 import { useCachedWeather } from './src/hooks/useCachedWeather';
 import './src/pwa'; // Register PWA service worker
 
 // Default to a coastal location (Tel Aviv) if geo fails
-const DEFAULT_LOC: Location = { id: 0, name: "Tel Aviv", lat: 32.0853, lng: 34.7818, country: "Israel" };
+const DEFAULT_LOC: Location = {
+  id: 0,
+  name: NAVIGATION_CONSTANTS.DEFAULT_LOCATION.name,
+  lat: NAVIGATION_CONSTANTS.DEFAULT_LOCATION.lat,
+  lng: NAVIGATION_CONSTANTS.DEFAULT_LOCATION.lng,
+  country: NAVIGATION_CONSTANTS.DEFAULT_LOCATION.country
+};
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>(ViewState.DASHBOARD);
@@ -26,17 +33,17 @@ const App: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
 
   // Use cached weather data with stale-while-revalidate pattern
-  const { 
-    data: weatherData, 
-    isLoading, 
-    error, 
+  const {
+    data: weatherData,
+    isLoading,
+    error,
     refetch,
     isStale,
-    lastUpdated 
+    lastUpdated
   } = useCachedWeather({
     lat: currentLocation.lat,
     lon: currentLocation.lng,
-    refetchInterval: 15 * 60 * 1000 // Auto-refresh every 15 minutes
+    refetchInterval: UI_CONSTANTS.AUTO_REFRESH_INTERVAL_MS
   });
 
 
@@ -139,31 +146,36 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
-      
-      {/* Top Bar */}
-      <nav className="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-10 shadow-md">
-        <div className="flex items-center gap-2">
-          <div className="bg-blue-600 p-2 rounded-lg">
-            <Anchor size={24} className="text-white" />
-          </div>
-          <div className="hidden md:block">
-             <h1 className="text-xl font-bold tracking-tight text-white">SeaYou</h1>
-             <p className="text-xs text-blue-400 font-medium tracking-wider">SEA'S INTELLIGENCE</p>
-          </div>
-        </div>
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        console.error('Root error boundary caught:', error, errorInfo);
+      }}
+    >
+      <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
 
-        {/* Location Picker */}
-        <button 
-           onClick={() => setShowLocationModal(true)}
-           className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-full border border-slate-700 transition-colors"
-        >
-            <MapPin size={16} className="text-red-400" />
-            <span className="text-sm font-bold truncate max-w-[150px]">{currentLocation.name}</span>
-            <div className="w-px h-4 bg-slate-600 mx-1"></div>
-            <Plus size={16} className="text-slate-400" />
-        </button>
-      </nav>
+        {/* Top Bar */}
+        <nav className="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-10 shadow-md">
+          <div className="flex items-center gap-2">
+            <div className="bg-blue-600 p-2 rounded-lg">
+              <Anchor size={24} className="text-white" />
+            </div>
+            <div className="hidden md:block">
+               <h1 className="text-xl font-bold tracking-tight text-white">SeaYou</h1>
+               <p className="text-xs text-blue-400 font-medium tracking-wider">SEA'S INTELLIGENCE</p>
+            </div>
+          </div>
+
+          {/* Location Picker */}
+          <button
+             onClick={() => setShowLocationModal(true)}
+             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-full border border-slate-700 transition-colors"
+          >
+              <MapPin size={16} className="text-red-400" />
+              <span className="text-sm font-bold truncate max-w-[150px]">{currentLocation.name}</span>
+              <div className="w-px h-4 bg-slate-600 mx-1"></div>
+              <Plus size={16} className="text-slate-400" />
+          </button>
+        </nav>
 
       {/* Location Modal */}
       {showLocationModal && (
@@ -242,24 +254,60 @@ const App: React.FC = () => {
           </div>
       )}
 
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto relative scroll-smooth">
-        {view === ViewState.DASHBOARD && (
-          <Dashboard weatherData={weatherData} loading={isLoading} error={error} locationName={currentLocation.name} onRetry={refetch} />
-        )}
-        {view === ViewState.MAP && (
-          <MapComponent currentLocation={{ lat: currentLocation.lat, lng: currentLocation.lng }} />
-        )}
-        {view === ViewState.ATMOSPHERE && (
-          <Atmosphere weatherData={weatherData} />
-        )}
-        {view === ViewState.ROUTE_PLANNING && (
-          <RoutePlanningView />
-        )}
-        {view === ViewState.COASTS_MARINAS && (
-          <CoastsMarinasView />
-        )}
-      </main>
+        {/* Main Content Area */}
+        <main className="flex-1 overflow-y-auto relative scroll-smooth">
+          {view === ViewState.DASHBOARD && (
+            <ErrorBoundary
+              resetKeys={[currentLocation.id, 'dashboard']}
+              onReset={refetch}
+              onError={(error, errorInfo) => {
+                console.error('Dashboard error:', error, errorInfo);
+              }}
+            >
+              <Dashboard weatherData={weatherData} loading={isLoading} error={error} locationName={currentLocation.name} onRetry={refetch} />
+            </ErrorBoundary>
+          )}
+          {view === ViewState.MAP && (
+            <ErrorBoundary
+              resetKeys={[currentLocation.id, 'map']}
+              onError={(error, errorInfo) => {
+                console.error('Map error:', error, errorInfo);
+              }}
+            >
+              <MapComponent currentLocation={{ lat: currentLocation.lat, lng: currentLocation.lng }} />
+            </ErrorBoundary>
+          )}
+          {view === ViewState.ATMOSPHERE && (
+            <ErrorBoundary
+              resetKeys={[currentLocation.id, 'atmosphere']}
+              onError={(error, errorInfo) => {
+                console.error('Atmosphere error:', error, errorInfo);
+              }}
+            >
+              <Atmosphere weatherData={weatherData} />
+            </ErrorBoundary>
+          )}
+          {view === ViewState.ROUTE_PLANNING && (
+            <ErrorBoundary
+              resetKeys={['route-planning']}
+              onError={(error, errorInfo) => {
+                console.error('Route Planning error:', error, errorInfo);
+              }}
+            >
+              <RoutePlanningView />
+            </ErrorBoundary>
+          )}
+          {view === ViewState.COASTS_MARINAS && (
+            <ErrorBoundary
+              resetKeys={['coasts-marinas']}
+              onError={(error, errorInfo) => {
+                console.error('Coasts/Marinas error:', error, errorInfo);
+              }}
+            >
+              <CoastsMarinasView />
+            </ErrorBoundary>
+          )}
+        </main>
 
       {/* Bottom Navigation */}
       <div className="bg-slate-900 border-t border-slate-800 p-2 pb-6 z-20">
@@ -316,9 +364,10 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Cache Status Indicator (bottom-right) */}
-      <CacheStatusIndicator />
-    </div>
+        {/* Cache Status Indicator (bottom-right) */}
+        <CacheStatusIndicator />
+      </div>
+    </ErrorBoundary>
   );
 };
 
