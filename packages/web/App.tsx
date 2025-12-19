@@ -53,30 +53,35 @@ const App: React.FC = () => {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
-          let cityName = "Current Location";
+          let newLoc: Location = {
+            id: -1,
+            name: "Current Location",
+            lat: latitude,
+            lng: longitude,
+          };
 
           try {
-            const resolvedName = await reverseGeocode(latitude, longitude);
-            if (resolvedName) {
-              cityName = resolvedName;
+            const resolvedLocation = await reverseGeocode(latitude, longitude);
+            if (resolvedLocation) {
+              // Use the resolved location data
+              newLoc = {
+                ...resolvedLocation,
+                id: -1, // Keep -1 as ID for current location
+              };
             }
           } catch (e) {
             console.error("Failed to reverse geocode", e);
           }
 
-          const newLoc: Location = {
-            id: -1,
-            name: cityName,
-            lat: latitude,
-            lng: longitude,
-          };
-          
           setLocations([newLoc]);
           setCurrentLocation(newLoc);
         },
         (err) => {
           // If geolocation fails or is denied, fall back to default location
           console.warn("Geolocation failed, using default location", err);
+          if (err.code === 1) {
+            console.info("Location permission denied. Please enable location services in your browser settings or use HTTPS.");
+          }
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
@@ -88,24 +93,26 @@ const App: React.FC = () => {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
-          let cityName = "Current Location";
+          let newLoc: Location = {
+            id: -1, // ID for "Current Location"
+            name: "Current Location",
+            lat: latitude,
+            lng: longitude,
+          };
 
           try {
-            const resolvedName = await reverseGeocode(latitude, longitude);
-            if (resolvedName) {
-              cityName = resolvedName;
+            const resolvedLocation = await reverseGeocode(latitude, longitude);
+            if (resolvedLocation) {
+              // Use the resolved location data
+              newLoc = {
+                ...resolvedLocation,
+                id: -1, // Keep -1 as ID for current location
+              };
             }
           } catch (e) {
             console.error("Failed to reverse geocode", e);
           }
 
-          const newLoc: Location = {
-            id: -1, // ID for "Current Location"
-            name: cityName,
-            lat: latitude,
-            lng: longitude,
-          };
-          
           setLocations(prev => {
               const filtered = prev.filter(l => l.id !== -1);
               return [newLoc, ...filtered];
@@ -115,6 +122,13 @@ const App: React.FC = () => {
         },
         (err) => {
           console.warn("Geolocation failed", err);
+          if (err.code === 1) {
+            alert("Location permission denied. Please enable location services in your browser settings. Note: Geolocation requires HTTPS or localhost.");
+          } else if (err.code === 2) {
+            alert("Location unavailable. Please check your device's location settings.");
+          } else if (err.code === 3) {
+            alert("Location request timed out. Please try again.");
+          }
         },
         { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
       );
