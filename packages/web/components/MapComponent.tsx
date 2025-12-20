@@ -5,6 +5,7 @@ import { Coordinate, PointForecast, DetailedPointForecast, fetchPointForecast, f
 import { Trash2, Navigation, MapPin, Wind, Layers, Waves, X, Clock, Activity, Droplets } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
+// Wind velocity and wave heatmap layers removed per user request
 
 const DefaultIcon = L.icon({
   iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
@@ -86,6 +87,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeLayer, setActiveLayer] = useState<MapLayer>('NONE');
   const [loadingGrid, setLoadingGrid] = useState(false);
+  const [gridForecasts, setGridForecasts] = useState<PointForecast[]>([]);
 
   // Detail View State
   const [selectedPointDetail, setSelectedPointDetail] = useState<DetailedPointForecast | null>(null);
@@ -165,7 +167,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
 
   const updateWeatherGrid = async () => {
       if (!mapInstance.current || !layerGroupRef.current) return;
-      
+
       // Clear existing grid markers
       layerGroupRef.current.clearLayers();
 
@@ -177,7 +179,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
       const east = bounds.getEast();
       const north = bounds.getNorth();
       const south = bounds.getSouth();
-      
+
       // Generate a grid focused on the visible marine area
       const gridPoints: Coordinate[] = [];
       const cols = 4;
@@ -196,9 +198,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
       }
 
       try {
-          // Use new Bulk Fetch API
+          // Use Bulk Fetch API
           const forecasts = await fetchBulkPointForecast(gridPoints);
-          
+
           // Filter out points with effectively 0 wave height (land)
           const marineForecasts = forecasts.filter(f => f.waveHeight > 0.05);
 
@@ -215,7 +217,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
      setIsDetailSidebarOpen(true);
      // Close route sidebar if open to prevent overlap
      setIsSidebarOpen(false);
-     
+
      const data = await fetchHourlyPointForecast(lat, lng);
      setSelectedPointDetail(data);
      setLoadingDetail(false);
@@ -427,13 +429,13 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
              >
                 <div className={`w-2 h-2 rounded-full border ${activeLayer === 'NONE' ? 'border-white bg-transparent' : 'border-slate-500'}`}></div> None
              </button>
-             <button 
+             <button
                onClick={() => setActiveLayer('WIND')}
                className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${activeLayer === 'WIND' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}
              >
                 <Wind size={12} /> Wind
              </button>
-             <button 
+             <button
                onClick={() => setActiveLayer('WAVE')}
                className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${activeLayer === 'WAVE' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}
              >
@@ -445,13 +447,13 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
              >
                 <Waves size={12} /> Wind Waves
              </button>
-             <button 
+             <button
                onClick={() => setActiveLayer('SWELL')}
                className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${activeLayer === 'SWELL' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}
              >
                 <Waves size={12} /> Swell
              </button>
-             <button 
+             <button
                onClick={() => setActiveLayer('CURRENTS')}
                className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${activeLayer === 'CURRENTS' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}
              >
