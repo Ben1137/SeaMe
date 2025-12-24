@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/* Theme color variables
+   - Define the Ocean (light) palette on :root
+   - Override mappings when the root has the `dark` class (applied by ThemeContext)
+   This keeps the generated Tailwind utilities (which reference these variables)
+   responsive to the active theme at runtime without rebuilding CSS.
+*/
+
+:root {
+  /* Deep Ocean Theme Colors (default / light)
+     Light Mode = Deep Ocean Blue (Madison / Teal)
+     Palette:
+       dark:    #031e3d  (card backgrounds)
+       base:    #082d5d  (main app background - Madison)
+       border:  #01658d  (borders)
+       teal:    #008d8d  (buttons / accents)
+       aqua:    #54E0CA  (text highlights / icons)
+  */
+  --color-ocean-dark: #031e3d;
+  --color-ocean-base: #082d5d;
+  --color-ocean-border: #01658d;
+  --color-ocean-teal: #008d8d;
+  --color-ocean-aqua: #54e0ca;
+
+  /* Night Watch Theme (Dark Mode = Original Slate)
+     Palette (Night Watch / Slate):
+       950: #020617 (slate-950)
+       900: #0f172a (slate-900)
+       800: #1e293b (slate-800)
+  */
+  --color-night-950: #020617;
+  --color-night-900: #0f172a;
+  --color-night-800: #1e293b;
+}
+
+/* Provide explicit light/dark class mappings for reliability.
+   ThemeContext adds either `light` or `dark` to documentElement.
+   We set both `.light` and `.dark` to ensure deterministic mapping
+   (some tooling/SSR variants may emit one or the other).
+*/
+
+:root.light, .light {
+  /* Light mode -> Deep Ocean */
+  --color-ocean-dark: #031e3d;
+  --color-ocean-base: #082d5d;
+  --color-ocean-border: #01658d;
+  --color-ocean-teal: #008d8d;
+  --color-ocean-aqua: #54e0ca;
+}
+
+:root.dark, .dark {
+  /* Dark mode -> Night Watch (Original Slate) */
+  --color-ocean-dark: #020617; /* night-950 */
+  --color-ocean-base: #0f172a; /* night-900 */
+  --color-ocean-border: #1e293b; /* night-800 */
+  /* Accent colors in dark mode use slightly muted/contrasting tones */
+  --color-ocean-teal: #2563eb; /* accent for dark */
+  --color-ocean-aqua: #60a5fa; /* muted aqua for contrast at night */
+}
+
+/* Small transition for smooth theme swaps */
+html { transition: background-color .2s ease, color .2s ease; }
+
+/* Recharts responsive containers can sometimes compute -1 sizes during layout
+   if parents are using flex/animations. Provide safe minimums so charts render. */
+.recharts-responsive-container, .recharts-wrapper {
+  min-width: 0;
+  min-height: 160px;
+}
