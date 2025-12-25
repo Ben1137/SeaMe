@@ -32,6 +32,14 @@
     "tsunamiSimulation": "סימולציית התראת צונאמי",
     "noData": "אין נתוני מזג אוויר זמינים."
   },
+  "settings": {
+    "alertConfig": "הגדרת התראות",
+    "alertConfiguration": "הגדרות התראות",
+    "waveThreshold": "סף גלים",
+    "windThreshold": "סף רוח",
+    "swellThreshold": "סף סוול",
+    "tsunamiSimulation": "סימולציית התראת צונאמי"
+  },
   "alerts": {
     "stormWarning": "אזהרת סערה",
     "stormMessage": "זוהו תנאי מזג אוויר קשים. חפש מחסה מיד.",
@@ -44,52 +52,57 @@
     "waveHeight": "גובה גלים",
     "windSpeed": "מהירות רוח",
     "swell": "סוול",
+    "swellHeight": "גובה סוול",
+    "swellPeriod": "תקופת סוול",
+    "wavePeriod": "תקופת גלים",
     "temperature": "טמפרטורה",
     "air": "אוויר",
     "sea": "ים",
     "period": "תקופה",
-    "feels": "מרגיש"
+    "feelsLike": "מרגיש כמו",
+    "currentUV": "UV נוכחי",
+    "height": "גובה"
   },
   "activity": {
-    "report": "דו״ח פעילויות",
+    "report": "דוח פעילות",
     "sailing": {
       "label": "שייט",
       "hazardous": "מסוכן",
-      "hazardousDesc": "הישאר בנמל. תנאים קיצוניים.",
+      "hazardousDesc": "הישארו בנמל. תנאים קיצוניים.",
       "challenging": "מאתגר",
-      "challengingDesc": "מלחים מנוסים בלבד. ים גועש.",
-      "calm": "רגוע",
-      "calmDesc": "רוחות קלות. ייתכן צורך במנוע.",
+      "challengingDesc": "מלחים מנוסים בלבד. ים סוער.",
+      "calm": "שקט",
+      "calmDesc": "רוחות קלות. מנוע עשוי להידרש.",
       "good": "טוב",
       "goodDesc": "תנאי שייט אידיאליים. רוחות נוחות.",
-      "moderate": "בינוני",
+      "moderate": "מתון",
       "moderateDesc": "תנאי חוף סטנדרטיים."
     },
     "surf": {
       "label": "גלישה",
       "poor": "גרוע",
-      "fair": "סביר",
+      "fair": "בינוני",
       "good": "טוב",
       "epic": "אפי"
     },
     "kite": {
-      "label": "קייט",
+      "label": "עפיפון",
       "optimal": "אופטימלי",
       "light": "קל"
     },
     "beach": {
       "label": "יום חוף",
       "perfect": "מושלם",
-      "perfectDesc": "תנאים אידיאליים לשיזוף והרגעה.",
+      "perfectDesc": "תנאים אידיאליים לשיזוף ורגיעה.",
       "poor": "גרוע",
-      "poorDesc": "סביר שתהיה משקעים. הישאר יבש.",
+      "poorDesc": "גשם צפוי. הישארו יבשים.",
       "windy": "סוער",
       "windyDesc": "רוחות חזקות מנשבות חול.",
       "chilly": "קריר",
-      "chillyDesc": "קח סוודר. לא מזג אוויר לשחייה.",
+      "chillyDesc": "הביאו סוודר. לא מזג אוויר לשחייה.",
       "scorching": "לוהט",
-      "scorchingDesc": "חום קיצוני. שמור על הידרציה.",
-      "roughSurf": "גלישה קשה",
+      "scorchingDesc": "חום קיצוני. הישארו מצוננים.",
+      "roughSurf": "גלישה סוערת",
       "roughSurfDesc": "שחייה לא מומלצת.",
       "poorRain": "גרוע (גשם)",
       "coolCloudy": "קריר ומעונן",
@@ -102,7 +115,9 @@
   "forecast": {
     "waveForecast": "תחזית גלים (גובה ותקופה)",
     "swellForecast": "תחזית סוול (גובה ותקופה)",
+    "tideSchedule": "לוח זמנים גאות ושפל וגובה פני הים",
     "tideForecast": "לוח זמנים גאות ושפל וגובה פני הים",
+    "tideHeight": "גובה גאות ושפל",
     "waves": "גלים",
     "swell": "סוול",
     "tides": "גאות ושפל",
@@ -137,21 +152,21 @@
   },
   "directions": {
     "north": "צפון",
-    "northEast": "צפון מזרח",
+    "northeast": "צפון מזרח",
     "east": "מזרח",
-    "southEast": "דרום מזרח",
+    "southeast": "דרום מזרח",
     "south": "דרום",
-    "southWest": "דרום מערב",
+    "southwest": "דרום מערב",
     "west": "מערב",
-    "northWest": "צפון מערב",
+    "northwest": "צפון מערב",
     "northerly": "צפונית",
-    "northEasterly": "צפון מזרחית",
+    "northeasterly": "צפון מזרחית",
     "easterly": "מזרחית",
-    "southEasterly": "דרום מזרחית",
+    "southeasterly": "דרום מזרחית",
     "southerly": "דרומית",
-    "southWesterly": "דרום מערבית",
+    "southwesterly": "דרום מערבית",
     "westerly": "מערבית",
-    "northWesterly": "צפון מערבית"
+    "northwesterly": "צפון מערבית"
   },
   "seaState": {
     "calm": "רגוע",
@@ -216,7 +231,7 @@
   },
   "moonPhases": {
     "newMoon": "ירח חדש",
-    "waxingCrescent": "סהרון גדל",
+    "waxingCrescent": "מופע ירח",
     "firstQuarter": "רבע ראשון",
     "waxingGibbous": "גיבוס גדל",
     "fullMoon": "ירח מלא",
@@ -267,9 +282,10 @@
     "cancel": "בטל",
     "clear": "נקה",
     "search": "חפש",
-    "add": "הוסף"
-  }
-  ,
+    "add": "הוסף",
+    "marineWeather": "מזג אויר ימי",
+    "noData": "אין נתוני מזג אוויר זמינים."
+  },
   "ui": {
     "confirm_new_content_reload": "תוכן חדש זמין. לטעון מחדש לעדכון?",
     "confirm_clear_cache": "לנקות את כל נתוני מזג האוויר השמורים? יהיה עליך להוריד נתונים מחדש.",

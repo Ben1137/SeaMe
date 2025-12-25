@@ -146,22 +146,39 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
   }, [weatherData]);
 
   const chartData = useMemo(() => {
-    if (!weatherData) return [];
+    if (!weatherData?.hourly?.time) {
+      console.log('No weather data or hourly data available');
+      return [];
+    }
     const start = currentHourIndex;
     const end = Math.min(start + 24, weatherData.hourly.time.length);
+    
+    console.log('Chart data generation:', { start, end, totalHours: weatherData.hourly.time.length, sampleData: {
+      waveHeight: weatherData.hourly.wave_height?.slice(start, start + 3),
+      windSpeed: weatherData.hourly.wind_speed_10m?.slice(start, start + 3),
+      swellHeight: weatherData.hourly.swell_wave_height?.slice(start, start + 3)
+    }});
 
-    return weatherData.hourly.time.slice(start, end).map((time, i) => {
+    const data = weatherData.hourly.time.slice(start, end).map((time, i) => {
       const globalIndex = start + i;
       return {
         time: time,
         displayTime: format(parseISO(time), 'HH:mm'),
-        waveHeight: weatherData.hourly.wave_height[globalIndex],
-        windSpeed: weatherData.hourly.wind_speed_10m[globalIndex],
-        swellHeight: weatherData.hourly.swell_wave_height[globalIndex],
-        wavePeriod: weatherData.hourly.wave_period[globalIndex],
-        swellPeriod: weatherData.hourly.swell_wave_period[globalIndex],
+        waveHeight: weatherData.hourly.wave_height?.[globalIndex] || 0,
+        windSpeed: weatherData.hourly.wind_speed_10m?.[globalIndex] || 0,
+        swellHeight: weatherData.hourly.swell_wave_height?.[globalIndex] || 0,
+        wavePeriod: weatherData.hourly.wave_period?.[globalIndex] || 0,
+        swellPeriod: weatherData.hourly.swell_wave_period?.[globalIndex] || 0,
       };
     });
+    
+    console.log('Generated chart data sample:', data.slice(0, 3).map(d => ({
+      time: d.displayTime,
+      waveHeight: d.waveHeight,
+      windSpeed: d.windSpeed,
+      swellHeight: d.swellHeight
+    })));
+    return data;
   }, [weatherData, currentHourIndex]);
 
   const tideChartData = useMemo(() => {
@@ -175,7 +192,11 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
 
   // Use the coherent 'current' object from API directly
   const currentConditions = useMemo(() => {
-    if (!weatherData?.current) return null;
+    if (!weatherData?.current) {
+      console.log('No current weather data available');
+      return null;
+    }
+    console.log('Current conditions data:', weatherData.current);
     return {
       wave: weatherData.current.waveHeight,
       wavePeriod: weatherData.current.wavePeriod,
