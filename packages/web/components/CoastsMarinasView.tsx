@@ -451,22 +451,22 @@ const MarinaCard: React.FC<{
 
       <div className="flex gap-3 mb-4">
         {marina.facilities.fuel && (
-          <Fuel className="w-5 h-5 text-slate-400" title="Fuel" />
+          <Fuel className="w-5 h-5 text-slate-400" />
         )}
         {marina.facilities.water && (
-          <Droplet className="w-5 h-5 text-slate-400" title="Water" />
+          <Droplet className="w-5 h-5 text-slate-400" />
         )}
         {marina.facilities.electricity && (
-          <Zap className="w-5 h-5 text-slate-400" title="Electricity" />
+          <Zap className="w-5 h-5 text-slate-400" />
         )}
         {marina.facilities.wifi && (
-          <Wifi className="w-5 h-5 text-slate-400" title="WiFi" />
+          <Wifi className="w-5 h-5 text-slate-400" />
         )}
         {marina.facilities.restaurant && (
-          <Utensils className="w-5 h-5 text-slate-400" title="Restaurant" />
+          <Utensils className="w-5 h-5 text-slate-400" />
         )}
         {marina.facilities.repair && (
-          <Wrench className="w-5 h-5 text-slate-400" title="Repair" />
+          <Wrench className="w-5 h-5 text-slate-400" />
         )}
       </div>
 

@@ -9,33 +9,16 @@ export const mockMarineWeatherData: MarineWeatherData = {
   timezone: 'GMT',
   timezone_abbreviation: 'GMT',
   hourly_units: {
-    time: 'iso8601',
     wave_height: 'm',
-    wave_direction: '°',
-    wave_period: 's',
-    wind_wave_height: 'm',
-    wind_wave_direction: '°',
-    wind_wave_period: 's',
-    wind_wave_peak_period: 's',
+    wind_speed_10m: 'm/s',
     swell_wave_height: 'm',
-    swell_wave_direction: '°',
+    wave_period: 's',
     swell_wave_period: 's',
-    swell_wave_peak_period: 's',
-    sea_surface_temperature: '°C',
   },
   hourly: {
-    time: Array.from({ length: 168 }, (_, i) => {
-      const date = new Date();
-      date.setHours(date.getHours() + i);
-      return date.toISOString();
-    }),
     wave_height: Array.from({ length: 168 }, () => 1.5 + Math.random() * 0.5),
     wave_direction: Array.from({ length: 168 }, () => 270 + Math.random() * 20),
     wave_period: Array.from({ length: 168 }, () => 6 + Math.random() * 2),
-    wind_wave_height: Array.from({ length: 168 }, () => 0.5 + Math.random() * 0.3),
-    wind_wave_direction: Array.from({ length: 168 }, () => 280 + Math.random() * 20),
-    wind_wave_period: Array.from({ length: 168 }, () => 4 + Math.random() * 1),
-    wind_wave_peak_period: Array.from({ length: 168 }, () => 5 + Math.random() * 1),
     swell_wave_height: Array.from({ length: 168 }, () => 1.0 + Math.random() * 0.5),
     swell_wave_direction: Array.from({ length: 168 }, () => 260 + Math.random() * 20),
     swell_wave_period: Array.from({ length: 168 }, () => 8 + Math.random() * 2),
@@ -63,32 +46,17 @@ export const mockMarineWeatherData: MarineWeatherData = {
     swell_wave_period_max: 's',
   },
   daily: {
-    time: Array.from({ length: 7 }, (_, i) => {
-      const date = new Date();
-      date.setDate(date.getDate() + i);
-      return date.toISOString().split('T')[0];
-    }),
     wave_height_max: Array.from({ length: 7 }, () => 2.0 + Math.random() * 1.0),
-    wave_direction_dominant: Array.from({ length: 7 }, () => 270),
+    swell_wave_direction_dominant: Array.from({ length: 7 }, () => 270),
     wave_period_max: Array.from({ length: 7 }, () => 8),
-    wind_wave_height_max: Array.from({ length: 7 }, () => 1.0),
-    wind_wave_direction_dominant: Array.from({ length: 7 }, () => 280),
-    wind_wave_period_max: Array.from({ length: 7 }, () => 5),
     swell_wave_height_max: Array.from({ length: 7 }, () => 1.5),
-    swell_wave_direction_dominant: Array.from({ length: 7 }, () => 260),
     swell_wave_period_max: Array.from({ length: 7 }, () => 10),
   },
   current: {
-    time: new Date().toISOString(),
-    interval: 900,
     sea_surface_temperature: 23,
     wave_height: 1.5,
     wave_direction: 270,
     wave_period: 7,
-    wind_wave_height: 0.6,
-    wind_wave_direction: 280,
-    wind_wave_period: 4,
-    wind_wave_peak_period: 5,
     swell_wave_height: 1.2,
     swell_wave_direction: 260,
     swell_wave_period: 9,

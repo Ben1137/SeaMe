@@ -2,9 +2,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as L from 'leaflet';
 import { Coordinate, PointForecast, DetailedPointForecast, fetchPointForecast, fetchHourlyPointForecast, fetchBulkPointForecast } from '@seame/core';
-import { Trash2, Navigation, MapPin, Wind, Layers, Waves, X, Clock, Activity, Droplets } from 'lucide-react';
+import { Trash2, Navigation, MapPin, Wind, Layers, Waves, X, Clock, Activity, Droplets, ChevronDown, ChevronUp } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
+import { useTranslation } from 'react-i18next';
 // Wind velocity and wave heatmap layers removed per user request
 
 const DefaultIcon = L.icon({
@@ -73,6 +74,7 @@ const getCurrentColor = (speed: number) => {
 };
 
 const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
+  const { t } = useTranslation();
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
@@ -88,6 +90,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
   const [activeLayer, setActiveLayer] = useState<MapLayer>('NONE');
   const [loadingGrid, setLoadingGrid] = useState(false);
   const [gridForecasts, setGridForecasts] = useState<PointForecast[]>([]);
+  const [isLayersPanelExpanded, setIsLayersPanelExpanded] = useState(false);
 
   // Detail View State
   const [selectedPointDetail, setSelectedPointDetail] = useState<DetailedPointForecast | null>(null);
@@ -105,7 +108,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
 
       L.circleMarker([currentLocation.lat, currentLocation.lng], {
         radius: 8, fillColor: "#3b82f6", color: "#ffffff", weight: 2, opacity: 1, fillOpacity: 0.8
-      }).addTo(map).bindPopup("Current Position");
+      }).addTo(map).bindPopup(t('map.currentPosition'));
 
       mapInstance.current = map;
       layerGroupRef.current = L.layerGroup().addTo(map);
@@ -329,7 +332,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
 
     // Add marker
     const marker = L.marker(latlng, { draggable: true }).addTo(mapInstance.current);
-    marker.bindPopup(`Waypoint ${markersRef.current.length + 1}`).openPopup();
+    marker.bindPopup(t('map.waypoint') + ` ${markersRef.current.length + 1}`).openPopup();
     
     // Update marker ref
     markersRef.current.push(marker);
@@ -413,88 +416,102 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
   })) : [];
 
   return (
-    <div className="relative h-full w-full bg-slate-900 overflow-hidden">
+    <div className="relative h-full w-full bg-card overflow-hidden">
       {/* Map Container */}
       <div ref={mapContainer} className="absolute inset-0 z-0" />
 
       {/* Map Layer Controls */}
-      <div className="absolute top-4 right-4 z-[400] bg-slate-800/90 backdrop-blur border border-slate-700 p-2 rounded-lg shadow-xl text-xs w-36 animate-in fade-in slide-in-from-right-4">
-          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-700 text-slate-300 font-bold uppercase">
-              <Layers size={14} /> Map Layers
+      <div className="absolute top-4 right-4 z-[400] bg-elevated backdrop-blur border border-app rounded-lg shadow-xl text-xs w-36 animate-in fade-in slide-in-from-right-4 overflow-hidden">
+          <button
+            onClick={() => setIsLayersPanelExpanded(!isLayersPanelExpanded)}
+            className="w-full flex items-center justify-between gap-2 p-2 border-b border-subtle text-secondary font-bold uppercase bg-elevated hover:bg-hover transition-colors cursor-pointer"
+          >
+              <div className="flex items-center gap-2">
+                <Layers size={14} /> {t('map.mapLayers')}
+              </div>
+              {isLayersPanelExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+          <div
+            className="transition-all duration-300 ease-in-out overflow-hidden"
+            style={{
+              maxHeight: isLayersPanelExpanded ? '500px' : '0',
+              opacity: isLayersPanelExpanded ? 1 : 0
+            }}
+          >
+            <div className="space-y-1 p-2">
+               <button
+                 onClick={() => setActiveLayer('NONE')}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${activeLayer === 'NONE' ? 'bg-button-secondary text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <div className={`w-2 h-2 rounded-full border ${activeLayer === 'NONE' ? 'border-primary bg-transparent' : 'border-muted'}`}></div> {t('map.none')}
+               </button>
+               <button
+                 onClick={() => setActiveLayer('WIND')}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${activeLayer === 'WIND' ? 'bg-blue-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Wind size={12} /> {t('map.wind')}
+               </button>
+               <button
+                 onClick={() => setActiveLayer('WAVE')}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${activeLayer === 'WAVE' ? 'bg-teal-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Waves size={12} /> {t('map.sigWaves')}
+               </button>
+               <button
+                 onClick={() => setActiveLayer('WIND_WAVE')}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${activeLayer === 'WIND_WAVE' ? 'bg-cyan-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Waves size={12} /> {t('map.windWaves')}
+               </button>
+               <button
+                 onClick={() => setActiveLayer('SWELL')}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${activeLayer === 'SWELL' ? 'bg-indigo-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Waves size={12} /> {t('weather.swell')}
+               </button>
+               <button
+                 onClick={() => setActiveLayer('CURRENTS')}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${activeLayer === 'CURRENTS' ? 'bg-emerald-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Activity size={12} /> {t('map.currents')}
+               </button>
+            </div>
+            {loadingGrid && (
+               <div className="pb-2 px-2 text-[10px] text-center text-blue-300 animate-pulse">{t('map.updatingForecast')}</div>
+            )}
           </div>
-          <div className="space-y-1">
-             <button 
-               onClick={() => setActiveLayer('NONE')}
-               className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${activeLayer === 'NONE' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}
-             >
-                <div className={`w-2 h-2 rounded-full border ${activeLayer === 'NONE' ? 'border-white bg-transparent' : 'border-slate-500'}`}></div> None
-             </button>
-             <button
-               onClick={() => setActiveLayer('WIND')}
-               className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${activeLayer === 'WIND' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}
-             >
-                <Wind size={12} /> Wind
-             </button>
-             <button
-               onClick={() => setActiveLayer('WAVE')}
-               className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${activeLayer === 'WAVE' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}
-             >
-                <Waves size={12} /> Sig. Waves
-             </button>
-             <button 
-               onClick={() => setActiveLayer('WIND_WAVE')}
-               className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${activeLayer === 'WIND_WAVE' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}
-             >
-                <Waves size={12} /> Wind Waves
-             </button>
-             <button
-               onClick={() => setActiveLayer('SWELL')}
-               className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${activeLayer === 'SWELL' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}
-             >
-                <Waves size={12} /> Swell
-             </button>
-             <button
-               onClick={() => setActiveLayer('CURRENTS')}
-               className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${activeLayer === 'CURRENTS' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:bg-slate-700/50'}`}
-             >
-                <Activity size={12} /> Currents
-             </button>
-          </div>
-          {loadingGrid && (
-             <div className="mt-2 text-[10px] text-center text-blue-300 animate-pulse">Updating Forecast...</div>
-          )}
       </div>
 
       {/* Sidebar Toggle Strip (Left) */}
       {!isSidebarOpen && legs.length > 0 && (
-         <button 
+         <button
             onClick={() => { setIsSidebarOpen(true); setIsDetailSidebarOpen(false); }}
-            className="absolute left-0 top-1/2 -translate-y-1/2 h-32 w-6 bg-slate-800 border-y border-r border-slate-700 rounded-r-xl flex items-center justify-center cursor-pointer hover:bg-slate-700 z-[400] shadow-xl"
+            className="absolute left-0 top-1/2 -translate-y-1/2 h-32 w-6 bg-elevated border-y border-r border-app rounded-r-xl flex items-center justify-center cursor-pointer hover:bg-button-secondary z-[400] shadow-xl transition-colors"
          >
-            <div className="rotate-90 text-[10px] uppercase font-bold text-slate-400 tracking-widest whitespace-nowrap">Route Info</div>
+            <div className="rotate-90 text-[10px] uppercase font-bold text-muted tracking-widest whitespace-nowrap">{t('map.routeInfo')}</div>
          </button>
       )}
 
       {/* Route Sidebar */}
       {isSidebarOpen && (
-        <div className="absolute top-0 left-0 bottom-0 w-80 bg-slate-900/95 backdrop-blur shadow-2xl border-r border-slate-800 z-[500] flex flex-col animate-in slide-in-from-left duration-300">
+        <div className="absolute top-0 left-0 bottom-0 w-80 bg-card/95 backdrop-blur shadow-2xl border-r border-app z-[500] flex flex-col animate-in slide-in-from-left duration-300">
            {/* Header */}
-           <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900">
+           <div className="p-4 border-b border-app flex justify-between items-center bg-card">
               <div>
-                 <h2 className="font-bold text-white flex items-center gap-2"><Navigation size={18} className="text-blue-400"/> Route Plan</h2>
-                 <p className="text-[10px] text-slate-500 uppercase tracking-wider">{routeStats.count} Waypoints • {routeStats.distance} NM</p>
+                 <h2 className="font-bold text-primary flex items-center gap-2"><Navigation size={18} className="text-accent"/> {t('map.routePlan')}</h2>
+                 <p className="text-[10px] text-muted uppercase tracking-wider">{routeStats.count} {t('map.waypoints')} • {routeStats.distance} {t('units.nm')}</p>
               </div>
-              <button onClick={() => setIsSidebarOpen(false)} className="p-1 hover:bg-slate-800 rounded text-slate-400"><X size={20}/></button>
+              <button onClick={() => setIsSidebarOpen(false)} className="p-1 hover:bg-hover rounded text-muted transition-colors"><X size={20}/></button>
            </div>
-           
+
            {/* Speed Control */}
-           <div className="p-4 bg-slate-800/50 border-b border-slate-800">
-              <label className="text-xs text-slate-400 flex justify-between mb-2">
-                  Avg Speed: <span className="text-white font-bold">{speed} kts</span>
+           <div className="p-4 bg-elevated border-b border-app">
+              <label className="text-xs text-secondary flex justify-between mb-2">
+                  {t('map.avgSpeed')}: <span className="text-primary font-bold">{speed} {t('units.knots')}</span>
               </label>
-              <input type="range" min="1" max="40" value={speed} onChange={(e) => setSpeed(parseInt(e.target.value))} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-              <div className="flex justify-between text-[10px] text-slate-600 mt-1">
-                 <span>1 kt</span><span>40 kts</span>
+              <input type="range" min="1" max="40" value={speed} onChange={(e) => setSpeed(parseInt(e.target.value))} className="w-full h-1 bg-button-secondary rounded-lg appearance-none cursor-pointer" style={{ accentColor: 'var(--text-accent)' }} />
+              <div className="flex justify-between text-[10px] text-muted mt-1">
+                 <span>1 {t('units.knots')}</span><span>40 {t('units.knots')}</span>
               </div>
            </div>
 
@@ -504,35 +521,35 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
                  // Forecast at start of leg
                  const forecast = waypointForecasts[leg.startIdx];
                  const time = (leg.distance / speed) * 60; // minutes
-                 
+
                  return (
-                   <div key={leg.id} className="bg-slate-800 border border-slate-700 rounded-lg p-3 relative group">
+                   <div key={leg.id} className="bg-elevated border border-app rounded-lg p-3 relative group">
                       <div className="flex justify-between items-start mb-2">
-                         <div className="text-xs font-bold text-slate-300">Leg {idx + 1}</div>
-                         <div className="text-[10px] text-slate-500">{leg.distance} NM @ {leg.bearing}°</div>
+                         <div className="text-xs font-bold text-primary">{t('map.leg')} {idx + 1}</div>
+                         <div className="text-[10px] text-muted">{leg.distance} {t('units.nm')} @ {leg.bearing}°</div>
                       </div>
-                      
+
                       <div className="flex items-center gap-2 mb-2">
-                         <div className="flex-1 h-1 bg-slate-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 w-1/2"></div>
+                         <div className="flex-1 h-1 bg-button-secondary rounded-full overflow-hidden">
+                            <div className="h-full bg-accent w-1/2"></div>
                          </div>
-                         <div className="text-[10px] text-blue-300 font-mono">~{Math.round(time)}m</div>
+                         <div className="text-[10px] text-accent font-mono">~{Math.round(time)}{t('units.minutes')}</div>
                       </div>
 
                       {forecast && (
-                         <div className="grid grid-cols-2 gap-2 text-[10px] bg-slate-900/50 p-2 rounded border border-slate-700/50">
-                             <div className="flex items-center gap-1 text-slate-400">
-                                <Waves size={10} className="text-blue-400"/> {forecast.waveHeight.toFixed(1)}m
+                         <div className="grid grid-cols-2 gap-2 text-[10px] bg-card p-2 rounded border border-subtle">
+                             <div className="flex items-center gap-1 text-secondary">
+                                <Waves size={10} className="text-accent"/> {forecast.waveHeight.toFixed(1)}{t('units.meters')}
                              </div>
-                             <div className="flex items-center gap-1 text-slate-400">
-                                <Wind size={10} className="text-cyan-400"/> {forecast.windSpeed.toFixed(0)} kt
+                             <div className="flex items-center gap-1 text-secondary">
+                                <Wind size={10} className="text-accent"/> {forecast.windSpeed.toFixed(0)} {t('units.knots')}
                              </div>
                          </div>
                       )}
-                      
+
                       <div className="absolute left-[-18px] top-1/2 -translate-y-1/2 w-4 flex flex-col items-center">
-                          <div className="w-2 h-2 rounded-full bg-blue-500 border-2 border-slate-900"></div>
-                          {idx < legs.length - 1 && <div className="w-0.5 h-full bg-slate-700 my-1"></div>}
+                          <div className="w-2 h-2 rounded-full bg-accent border-2 border-card"></div>
+                          {idx < legs.length - 1 && <div className="w-0.5 h-full bg-button-secondary my-1"></div>}
                       </div>
                    </div>
                  );
@@ -540,9 +557,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
            </div>
 
            {/* Footer */}
-           <div className="p-4 border-t border-slate-800 bg-slate-900">
+           <div className="p-4 border-t border-app bg-card">
               <button onClick={clearRoute} className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors">
-                  <Trash2 size={14} /> Clear Route
+                  <Trash2 size={14} /> {t('map.clearRoute')}
               </button>
            </div>
         </div>
@@ -550,47 +567,51 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
 
       {/* Point Detail Sidebar */}
       {isDetailSidebarOpen && (
-          <div className="absolute top-0 right-0 bottom-0 w-96 bg-slate-900/95 backdrop-blur shadow-2xl border-l border-slate-800 z-[500] flex flex-col animate-in slide-in-from-right duration-300">
-               <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900">
+          <div className="absolute top-0 right-0 bottom-0 w-96 bg-card/95 backdrop-blur shadow-2xl border-l border-app z-[500] flex flex-col animate-in slide-in-from-right duration-300">
+               <div className="p-4 border-b border-app flex justify-between items-center bg-card">
                   <div>
-                     <h2 className="font-bold text-white flex items-center gap-2"><Activity size={18} className="text-teal-400"/> Point Forecast</h2>
-                     <p className="text-[10px] text-slate-500 uppercase tracking-wider">
-                         {selectedPointDetail ? `${selectedPointDetail.lat.toFixed(4)}N, ${selectedPointDetail.lng.toFixed(4)}E` : 'Loading...'}
+                     <h2 className="font-bold text-primary flex items-center gap-2"><Activity size={18} className="text-teal-400"/> {t('map.pointForecast')}</h2>
+                     <p className="text-[10px] text-muted uppercase tracking-wider">
+                         {selectedPointDetail ? `${selectedPointDetail.lat.toFixed(4)}N, ${selectedPointDetail.lng.toFixed(4)}E` : t('map.loadingData')}
                      </p>
                   </div>
-                  <button onClick={() => setIsDetailSidebarOpen(false)} className="p-1 hover:bg-slate-800 rounded text-slate-400"><X size={20}/></button>
+                  <button onClick={() => setIsDetailSidebarOpen(false)} className="p-1 hover:bg-hover rounded text-muted transition-colors"><X size={20}/></button>
                </div>
 
                {loadingDetail ? (
                    <div className="flex-1 flex items-center justify-center text-blue-400 animate-pulse">
-                       <Clock size={32} className="animate-spin mr-2" /> Loading Data...
+                       <Clock size={32} className="animate-spin mr-2" /> {t('map.loadingData')}
                    </div>
                ) : selectedPointDetail && (
                    <div className="flex-1 overflow-y-auto p-4 space-y-6">
                        
                        {/* Wave & Swell Chart - Show for Wave/Swell layers or by default if no specific layer */}
                        {(activeLayer === 'WAVE' || activeLayer === 'SWELL' || activeLayer === 'SIGNIFICANT_WAVE' || activeLayer === 'WIND_WAVE' || activeLayer === 'NONE') && (
-                           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 animate-in fade-in slide-in-from-right-8">
-                               <h3 className="text-xs font-bold text-slate-400 uppercase mb-4 flex items-center gap-2"><Waves size={14}/> Wave & Swell Height (m)</h3>
+                           <div className="bg-elevated/50 rounded-xl p-4 border border-app animate-in fade-in slide-in-from-right-8">
+                               <h3 className="text-xs font-bold text-secondary uppercase mb-4 flex items-center gap-2"><Waves size={14}/> {t('map.waveSwellHeight')}</h3>
                                <div className="h-40 w-full min-h-[160px]">
                                    <ResponsiveContainer width="100%" height="100%">
                                        <AreaChart data={detailChartData}>
                                            <defs>
                                                <linearGradient id="waveGrad" x1="0" y1="0" x2="0" y2="1">
-                                                   <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                                                   <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                                   <stop offset="5%" stopColor="var(--chart-tertiary)" stopOpacity={0.3}/>
+                                                   <stop offset="95%" stopColor="var(--chart-tertiary)" stopOpacity={0}/>
                                                </linearGradient>
                                                 <linearGradient id="swellGrad" x1="0" y1="0" x2="0" y2="1">
-                                                   <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.3}/>
-                                                   <stop offset="95%" stopColor="#14b8a6" stopOpacity={0}/>
+                                                   <stop offset="5%" stopColor="var(--chart-secondary)" stopOpacity={0.3}/>
+                                                   <stop offset="95%" stopColor="var(--chart-secondary)" stopOpacity={0}/>
                                                </linearGradient>
                                            </defs>
-                                           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                           <XAxis dataKey="time" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} interval={4} />
-                                           <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                                           <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} itemStyle={{ color: '#e2e8f0' }} labelStyle={{ color: '#94a3b8' }} />
-                                           <Area type="monotone" dataKey="waveHeight" stroke="#3b82f6" fill="url(#waveGrad)" strokeWidth={2} name="Wave" />
-                                           <Area type="monotone" dataKey="swellHeight" stroke="#14b8a6" fill="url(#swellGrad)" strokeWidth={2} name="Swell" />
+                                           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                                           <XAxis dataKey="time" stroke="var(--chart-text)" fontSize={10} tickLine={false} axisLine={false} interval={4} />
+                                           <YAxis stroke="var(--chart-text)" fontSize={10} tickLine={false} axisLine={false} />
+                                           <Tooltip
+                                               contentStyle={{ backgroundColor: 'var(--app-bg-card)', borderColor: 'var(--app-border)' }}
+                                               itemStyle={{ color: 'var(--text-secondary)' }}
+                                               labelStyle={{ color: 'var(--text-muted)' }}
+                                           />
+                                           <Area type="monotone" dataKey="waveHeight" stroke="var(--chart-tertiary)" fill="url(#waveGrad)" strokeWidth={2} name={t('weather.waveHeight')} />
+                                           <Area type="monotone" dataKey="swellHeight" stroke="var(--chart-secondary)" fill="url(#swellGrad)" strokeWidth={2} name={t('weather.swell')} />
                                        </AreaChart>
                                    </ResponsiveContainer>
                                </div>
@@ -599,22 +620,26 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
 
                        {/* Wind Chart - Show for Wind layer or None */}
                        {(activeLayer === 'WIND' || activeLayer === 'NONE') && (
-                           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 animate-in fade-in slide-in-from-right-10">
-                               <h3 className="text-xs font-bold text-slate-400 uppercase mb-4 flex items-center gap-2"><Wind size={14}/> Wind Speed (km/h)</h3>
+                           <div className="bg-elevated/50 rounded-xl p-4 border border-app animate-in fade-in slide-in-from-right-10">
+                               <h3 className="text-xs font-bold text-secondary uppercase mb-4 flex items-center gap-2"><Wind size={14}/> {t('map.windSpeedChart')}</h3>
                                <div className="h-40 w-full min-h-[160px]">
                                    <ResponsiveContainer width="100%" height="100%">
                                        <AreaChart data={detailChartData}>
                                            <defs>
                                                <linearGradient id="windGrad" x1="0" y1="0" x2="0" y2="1">
-                                                   <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3}/>
-                                                   <stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/>
+                                                   <stop offset="5%" stopColor="var(--chart-primary)" stopOpacity={0.3}/>
+                                                   <stop offset="95%" stopColor="var(--chart-primary)" stopOpacity={0}/>
                                                </linearGradient>
                                            </defs>
-                                           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                           <XAxis dataKey="time" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} interval={4} />
-                                           <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                                           <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} itemStyle={{ color: '#e2e8f0' }} labelStyle={{ color: '#94a3b8' }} />
-                                           <Area type="monotone" dataKey="windSpeed" stroke="#06b6d4" fill="url(#windGrad)" strokeWidth={2} name="Wind" />
+                                           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                                           <XAxis dataKey="time" stroke="var(--chart-text)" fontSize={10} tickLine={false} axisLine={false} interval={4} />
+                                           <YAxis stroke="var(--chart-text)" fontSize={10} tickLine={false} axisLine={false} />
+                                           <Tooltip
+                                               contentStyle={{ backgroundColor: 'var(--app-bg-card)', borderColor: 'var(--app-border)' }}
+                                               itemStyle={{ color: 'var(--text-secondary)' }}
+                                               labelStyle={{ color: 'var(--text-muted)' }}
+                                           />
+                                           <Area type="monotone" dataKey="windSpeed" stroke="var(--chart-primary)" fill="url(#windGrad)" strokeWidth={2} name={t('weather.windSpeed')} />
                                        </AreaChart>
                                    </ResponsiveContainer>
                                </div>
@@ -623,8 +648,8 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
 
                        {/* Currents Chart - Show if Currents Layer or None */}
                        {(activeLayer === 'CURRENTS' || activeLayer === 'NONE') && (
-                           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 animate-in fade-in slide-in-from-right-8">
-                               <h3 className="text-xs font-bold text-slate-400 uppercase mb-4 flex items-center gap-2"><Activity size={14}/> Current Velocity (km/h)</h3>
+                           <div className="bg-elevated/50 rounded-xl p-4 border border-app animate-in fade-in slide-in-from-right-8">
+                               <h3 className="text-xs font-bold text-secondary uppercase mb-4 flex items-center gap-2"><Activity size={14}/> {t('map.currentVelocity')}</h3>
                                <div className="h-40 w-full min-h-[160px]">
                                    <ResponsiveContainer width="100%" height="100%">
                                        <AreaChart data={detailChartData}>
@@ -634,11 +659,15 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
                                                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                                                </linearGradient>
                                            </defs>
-                                           <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                           <XAxis dataKey="time" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} interval={4} />
-                                           <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                                           <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} itemStyle={{ color: '#e2e8f0' }} labelStyle={{ color: '#94a3b8' }} />
-                                           <Area type="monotone" dataKey="currentSpeed" stroke="#10b981" fill="url(#currentGrad)" strokeWidth={2} name="Current" />
+                                           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                                           <XAxis dataKey="time" stroke="var(--chart-text)" fontSize={10} tickLine={false} axisLine={false} interval={4} />
+                                           <YAxis stroke="var(--chart-text)" fontSize={10} tickLine={false} axisLine={false} />
+                                           <Tooltip
+                                               contentStyle={{ backgroundColor: 'var(--app-bg-card)', borderColor: 'var(--app-border)' }}
+                                               itemStyle={{ color: 'var(--text-secondary)' }}
+                                               labelStyle={{ color: 'var(--text-muted)' }}
+                                           />
+                                           <Area type="monotone" dataKey="currentSpeed" stroke="#10b981" fill="url(#currentGrad)" strokeWidth={2} name={t('map.currents')} />
                                        </AreaChart>
                                    </ResponsiveContainer>
                                </div>

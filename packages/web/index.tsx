@@ -2,8 +2,12 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from 'react-error-boundary';
+import { I18nextProvider } from 'react-i18next';
 import App from './App';
 import { ErrorState } from './components/ErrorState';
+import { ThemeProvider } from './src/contexts/ThemeContext';
+import i18n from './src/i18n/config';
+import './src/index.css'; // Import Tailwind CSS and theme variables
 
 // Configure React Query
 const queryClient = new QueryClient({
@@ -30,9 +34,13 @@ root.render(
       FallbackComponent={ErrorState}
       onReset={() => window.location.reload()}
     >
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
+      <I18nextProvider i18n={i18n}>
+        <ThemeProvider defaultTheme="dark">
+          <QueryClientProvider client={queryClient}>
+            <App />
+          </QueryClientProvider>
+        </ThemeProvider>
+      </I18nextProvider>
     </ErrorBoundary>
   </React.StrictMode>
 );

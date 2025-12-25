@@ -28,6 +28,9 @@ interface ErrorBoundaryState {
  * - Styled to match the dark theme (slate-900, blue accents)
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public props: ErrorBoundaryProps;
+  public state: ErrorBoundaryState;
+  
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = {
@@ -228,6 +231,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
  * Shows a more compact error UI suitable for smaller components
  */
 export class InlineErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public props: ErrorBoundaryProps;
+  public state: ErrorBoundaryState;
+  
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = {

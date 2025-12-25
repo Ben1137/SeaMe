@@ -195,9 +195,7 @@ const parseNOAAHazards = (data: any): NOAAHazard[] => {
 /**
  * Get latest notices to mariners for an area
  */
-export const fetchNoticesTo
-
-Mariners = async (
+export const fetchNoticesToMariners = async (
   boundingBox: {
     north: number;
     south: number;

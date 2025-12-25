@@ -3,8 +3,8 @@ import { MarineWeatherData, AlertConfig } from '@seame/core';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart, Line, Legend
 } from 'recharts';
-import { 
-  Wind, Activity, Droplets, AlertTriangle, Waves, ArrowUp, ArrowDown, 
+import {
+  Wind, Activity, Droplets, AlertTriangle, Waves, ArrowUp, ArrowDown,
   Navigation, Settings, X, Bell, Sun, Moon, Cloud, CloudRain, CloudSnow, CloudLightning, CloudFog,
   Thermometer, ThumbsUp, Skull, Flag, Palmtree, Compass, ChevronRight, ChevronLeft, Tornado, Ruler, Layers
 } from 'lucide-react';
@@ -12,6 +12,7 @@ import { format, parseISO } from 'date-fns';
 import { getWeatherDescription } from '@seame/core';
 import { DashboardSkeleton } from './LoadingSkeleton';
 import { ErrorState } from './ErrorState';
+import { useTranslation } from 'react-i18next';
 
 interface DashboardProps {
   weatherData: MarineWeatherData | null | undefined;
@@ -31,63 +32,99 @@ const DEFAULT_ALERT_CONFIG: AlertConfig = {
 // --- Weather Animation Component ---
 const WeatherAnimation: React.FC<{ code: number }> = ({ code }) => {
   // Clear
-  if (code === 0 || code === 1) return <Sun className="text-yellow-400 animate-[spin_10s_linear_infinite]" size={20} />;
+  if (code === 0 || code === 1) return <Sun className="text-accent animate-[spin_10s_linear_infinite]" size={20} />;
   // Cloudy
-  if (code === 2 || code === 3) return <Cloud className="text-slate-400 animate-pulse" size={20} />;
+  if (code === 2 || code === 3) return <Cloud className="text-secondary animate-pulse" size={20} />;
   // Fog
-  if (code === 45 || code === 48) return <CloudFog className="text-slate-500 animate-pulse" size={20} />;
+  if (code === 45 || code === 48) return <CloudFog className="text-muted animate-pulse" size={20} />;
   // Rain / Drizzle
-  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return <CloudRain className="text-blue-400 animate-bounce" size={20} />;
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return <CloudRain className="text-accent animate-bounce" size={20} />;
   // Snow
-  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return <CloudSnow className="text-white animate-bounce" size={20} />;
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return <CloudSnow className="text-primary animate-bounce" size={20} />;
   // Thunder
   if (code >= 95 && code <= 99) return <CloudLightning className="text-yellow-500 animate-pulse" size={20} />;
-  
-  return <Sun className="text-yellow-400" size={20} />;
+
+  return <Sun className="text-accent" size={20} />;
 };
 
-const getCardinalDirection = (angle: number): string => {
-  const directions = ['North', 'North East', 'East', 'South East', 'South', 'South West', 'West', 'North West'];
-  const index = Math.round(angle / 45) % 8;
-  return directions[index];
+// Translation helper for cardinal directions
+const getCardinalDirectionKey = (angle: number): number => {
+  return Math.round(angle / 45) % 8;
 };
 
-const getMarinerWindDir = (angle: number): string => {
-  const directions = [
-    'Northerly', 'North Easterly', 'Easterly', 'South Easterly', 
-    'Southerly', 'South Westerly', 'Westerly', 'North Westerly'
-  ];
-  const index = Math.round(angle / 45) % 8;
-  return directions[index];
+// Translation helper for mariner wind directions
+const getMarinerWindDirKey = (angle: number): number => {
+  return Math.round(angle / 45) % 8;
 };
 
-const getSeaStateTerm = (heightM: number): string => {
-  if (heightM < 0.1) return "Calm";
-  if (heightM < 0.5) return "Smooth";
-  if (heightM < 1.25) return "Slight";
-  if (heightM < 2.5) return "Moderate";
-  if (heightM < 4) return "Rough";
-  if (heightM < 6) return "Very Rough";
-  if (heightM < 9) return "High";
-  return "Phenomenal";
+// Translation helper for sea states
+const getSeaStateKey = (heightM: number): string => {
+  if (heightM < 0.1) return "calm";
+  if (heightM < 0.5) return "smooth";
+  if (heightM < 1.25) return "slight";
+  if (heightM < 2.5) return "moderate";
+  if (heightM < 4) return "rough";
+  if (heightM < 6) return "veryRough";
+  if (heightM < 9) return "high";
+  return "phenomenal";
 };
 
-const getSeaStateFull = (minM: number, maxM: number): string => {
-    const minTerm = getSeaStateTerm(minM);
-    const maxTerm = getSeaStateTerm(maxM);
-    const rangeText = `${(minM * 100).toFixed(0)}-${(maxM * 100).toFixed(0)} cm`;
-    if (minTerm === maxTerm) return `${minTerm} (${rangeText})`;
-    return `${minTerm} to ${maxTerm} (${rangeText})`;
+// Translation helper for weather conditions
+const getWeatherConditionKey = (code: number): string => {
+  const codeMap: Record<number, string> = {
+    0: 'clearSky',
+    1: 'mainlyClear', 2: 'partlyCloudy', 3: 'overcast',
+    45: 'fog', 48: 'depositingRimeFog',
+    51: 'lightDrizzle', 53: 'moderateDrizzle', 55: 'denseDrizzle',
+    61: 'slightRain', 63: 'moderateRain', 65: 'heavyRain',
+    71: 'slightSnow', 73: 'moderateSnow', 75: 'heavySnow',
+    77: 'snowGrains',
+    80: 'slightRainShowers', 81: 'moderateRainShowers', 82: 'violentRainShowers',
+    95: 'thunderstorm', 96: 'thunderstormWithHail', 99: 'heavyHailThunderstorm'
+  };
+  return codeMap[code] || 'unknown';
 };
 
 const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, locationName, onRetry }) => {
+  const { t } = useTranslation();
   const [showSettings, setShowSettings] = useState(false);
   const [alertConfig, setAlertConfig] = useState<AlertConfig>(DEFAULT_ALERT_CONFIG);
   const [forecastTab, setForecastTab] = useState<'mariner' | 'surfer' | 'kite' | 'beach'>('mariner');
   const [dismissedAlert, setDismissedAlert] = useState(false);
-  
+
   // Graph Tab State
   const [activeGraph, setActiveGraph] = useState<'tide' | 'wave' | 'swell'>('wave');
+
+  // Translation helper functions
+  const getCardinalDirection = (angle: number): string => {
+    const keys = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
+    const index = Math.round(angle / 45) % 8;
+    return t(`directions.${keys[index]}`);
+  };
+
+  const getMarinerWindDir = (angle: number): string => {
+    const keys = ['northerly', 'northeasterly', 'easterly', 'southeasterly', 'southerly', 'southwesterly', 'westerly', 'northwesterly'];
+    const index = Math.round(angle / 45) % 8;
+    return t(`directions.${keys[index]}`);
+  };
+
+  const getSeaStateTerm = (heightM: number): string => {
+    const key = getSeaStateKey(heightM);
+    return t(`seaState.${key}`);
+  };
+
+  const getSeaStateFull = (minM: number, maxM: number): string => {
+    const minTerm = getSeaStateTerm(minM);
+    const maxTerm = getSeaStateTerm(maxM);
+    const rangeText = `${(minM * 100).toFixed(0)}-${(maxM * 100).toFixed(0)} cm`;
+    if (minTerm === maxTerm) return `${minTerm} (${rangeText})`;
+    return `${minTerm} ${t('seaState.to')} ${maxTerm} (${rangeText})`;
+  };
+
+  const getWeatherConditionTranslated = (code: number): string => {
+    const key = getWeatherConditionKey(code);
+    return t(`weatherConditions.${key}`);
+  };
 
   // All hooks must be called before any conditional returns
   const currentHourIndex = useMemo(() => {
@@ -162,80 +199,80 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
 
     if (weatherCode >= 95 || wind > 65 || wave > 4.5) {
         return {
-            title: "STORM WARNING",
-            message: "Severe weather conditions detected. Seek shelter immediately.",
+            title: t('alerts.stormWarning'),
+            message: t('alerts.stormMessage'),
             icon: Tornado,
             color: "bg-red-600"
         };
     }
     if (weatherCode >= 80 || wind > 50 || wave > 3.0) {
         return {
-            title: "ROUGH WEATHER ADVISORY",
-            message: "High winds and rough seas expected. Caution advised.",
+            title: t('alerts.roughWeather'),
+            message: t('alerts.roughWeatherMessage'),
             icon: CloudLightning,
             color: "bg-orange-600"
         };
     }
     if (alertConfig.simulateTsunami) {
         return {
-            title: "TSUNAMI ALERT",
-            message: "Immediate evacuation ordered. High wave impact imminent.",
+            title: t('alerts.tsunami'),
+            message: t('alerts.tsunamiMessage'),
             icon: Waves,
             color: "bg-red-900 animate-pulse border-2 border-red-500"
         };
     }
     return null;
-  }, [weatherData, currentConditions, alertConfig.simulateTsunami]);
+  }, [weatherData, currentConditions, alertConfig.simulateTsunami, t]);
 
   const sailingCondition = useMemo(() => {
     if (!currentConditions) return null;
     const { wind, wave } = currentConditions;
-    if (wind > 55 || wave > 3.5) return { label: 'Hazardous', description: 'Stay in port. Extreme conditions.', color: 'text-red-500', bg: 'bg-red-500/10', icon: Skull };
-    if (wind > 40 || wave > 2.5) return { label: 'Challenging', description: 'Experienced sailors only. Rough seas.', color: 'text-orange-500', bg: 'bg-orange-500/10', icon: AlertTriangle };
-    if (wind < 10) return { label: 'Calm', description: 'Light winds. Motor may be needed.', color: 'text-slate-400', bg: 'bg-slate-800', icon: Wind };
-    if (wind >= 10 && wave < 2.0) return { label: 'Good', description: 'Ideal sailing conditions. Fair winds.', color: 'text-green-400', bg: 'bg-green-500/10', icon: ThumbsUp };
-    return { label: 'Moderate', description: 'Standard coastal conditions.', color: 'text-blue-400', bg: 'bg-blue-500/10', icon: Flag };
-  }, [currentConditions]);
+    if (wind > 55 || wave > 3.5) return { label: t('activity.sailing.hazardous'), description: t('activity.sailing.hazardousDesc'), color: 'text-red-500', bg: 'bg-red-500/10', icon: Skull };
+    if (wind > 40 || wave > 2.5) return { label: t('activity.sailing.challenging'), description: t('activity.sailing.challengingDesc'), color: 'text-orange-500', bg: 'bg-orange-500/10', icon: AlertTriangle };
+    if (wind < 10) return { label: t('activity.sailing.calm'), description: t('activity.sailing.calmDesc'), color: 'text-secondary', bg: 'bg-elevated', icon: Wind };
+    if (wind >= 10 && wave < 2.0) return { label: t('activity.sailing.good'), description: t('activity.sailing.goodDesc'), color: 'text-green-400', bg: 'bg-green-500/10', icon: ThumbsUp };
+    return { label: t('activity.sailing.moderate'), description: t('activity.sailing.moderateDesc'), color: 'text-accent', bg: 'bg-blue-500/10', icon: Flag };
+  }, [currentConditions, t]);
 
   const surfStats = useMemo(() => {
     if (!currentConditions) return null;
     const { swell, swellPeriod, wind } = currentConditions;
-    
-    let surfRating = 'Poor';
-    let surfColor = 'text-slate-400';
-    if (swell > 0.5 && swellPeriod && swellPeriod > 8) { surfRating = 'Fair'; surfColor = 'text-blue-400'; }
-    if (swell > 1.0 && swellPeriod && swellPeriod > 10) { surfRating = 'Good'; surfColor = 'text-green-400'; }
-    if (swell > 1.5 && swellPeriod && swellPeriod > 12) { surfRating = 'Epic'; surfColor = 'text-purple-400'; }
+
+    let surfRating = t('activity.surf.poor');
+    let surfColor = 'text-secondary';
+    if (swell > 0.5 && swellPeriod && swellPeriod > 8) { surfRating = t('activity.surf.fair'); surfColor = 'text-accent'; }
+    if (swell > 1.0 && swellPeriod && swellPeriod > 10) { surfRating = t('activity.surf.good'); surfColor = 'text-green-400'; }
+    if (swell > 1.5 && swellPeriod && swellPeriod > 12) { surfRating = t('activity.surf.epic'); surfColor = 'text-purple-400'; }
 
     return {
       surf: { rating: surfRating, color: surfColor },
-      kite: { color: 'text-white' }
+      kite: { color: 'text-primary' }
     };
-  }, [currentConditions]);
+  }, [currentConditions, t]);
 
   const beachStats = useMemo(() => {
     if (!currentConditions || !weatherData?.general) return null;
     const { wind, wave, currentUV } = currentConditions;
     const { temperature, weatherCode } = weatherData.general;
 
-    let status = "Perfect";
+    let status = t('activity.beach.perfect');
     let color = "text-green-400";
-    let message = "Ideal conditions for tanning and chilling.";
+    let message = t('activity.beach.perfectDesc');
 
-    if (weatherCode > 50) { 
-        status = "Poor"; color = "text-slate-500"; message = "Precipitation likely. Stay dry.";
+    if (weatherCode > 50) {
+        status = t('activity.beach.poor'); color = "text-muted"; message = t('activity.beach.poorDesc');
     } else if (wind > 30) {
-        status = "Windy"; color = "text-orange-400"; message = "Strong winds blowing sand.";
+        status = t('activity.beach.windy'); color = "text-orange-400"; message = t('activity.beach.windyDesc');
     } else if (temperature < 20) {
-        status = "Chilly"; color = "text-blue-300"; message = "Bring a sweater. Not swimming weather.";
+        status = t('activity.beach.chilly'); color = "text-blue-300"; message = t('activity.beach.chillyDesc');
     } else if (temperature > 35) {
-        status = "Scorching"; color = "text-red-400"; message = "Extreme heat. Stay hydrated.";
+        status = t('activity.beach.scorching'); color = "text-red-400"; message = t('activity.beach.scorchingDesc');
     } else if (wave > 1.5) {
-        status = "Rough Surf"; color = "text-yellow-400"; message = "Swimming not recommended.";
+        status = t('activity.beach.roughSurf'); color = "text-yellow-400"; message = t('activity.beach.roughSurfDesc');
     }
 
     return { status, color, message, uvIndex: currentUV };
-  }, [currentConditions, weatherData?.general]);
+  }, [currentConditions, weatherData?.general, t]);
 
   const forecastTableBlocks = useMemo(() => {
     if (!weatherData?.hourly) return [];
@@ -296,7 +333,6 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
         
         // Use hourly weather code for accurate row weather
         const hourlyCode = weatherData.hourly.weather_code?.[start] || 0;
-        const weatherDesc = getWeatherDescription(hourlyCode);
 
         const maxUVBlock = Math.max(...uvs).toFixed(0);
 
@@ -307,7 +343,6 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
             seaStatus: getSeaStateFull(minWave, maxWave),
             wind: `${windDirText} (${minWind}-${maxWind} km/h)`,
             visibility: `${avgVisNM} nm`,
-            weather: weatherDesc,
             weatherCode: hourlyCode, 
             swell: swellDirText,
             swellHeight: swellHeightAvg,
@@ -335,9 +370,9 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
 
   if (loading) return <DashboardSkeleton />;
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
-  
+
   if (!weatherData || !currentConditions) {
-      if (!loading && !error) return <div className="p-8 text-center text-slate-400">No weather data available.</div>;
+      if (!loading && !error) return <div className="p-8 text-center text-secondary">{t('common.noData')}</div>;
       return null;
   }
 
@@ -366,55 +401,55 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
 
       <header className="flex justify-between items-start">
         <div>
-          <h1 className="text-3xl font-bold text-slate-100 flex items-center gap-2">
+          <h1 className="text-3xl font-bold text-primary flex items-center gap-2">
             <span className="relative flex h-8 w-8 items-center justify-center mr-2">
                 <WeatherAnimation code={weatherData.general?.weatherCode || 0} />
             </span>
-            {weatherData.general?.weatherDescription || 'Marine Weather'}
+            {weatherData.general?.weatherDescription || t('common.marineWeather')}
           </h1>
-          <p className="text-slate-400 text-sm mt-1 flex items-center gap-1">
-             <span className="font-semibold text-white">{locationName}</span> 
-             <span className="opacity-50">•</span> 
-             {weatherData.latitude.toFixed(4)}°N, {weatherData.longitude.toFixed(4)}°E 
-             <span className="opacity-50">•</span> 
+          <p className="text-secondary text-sm mt-1 flex items-center gap-1">
+             <span className="font-semibold text-primary">{locationName}</span>
+             <span className="opacity-50">•</span>
+             {weatherData.latitude.toFixed(4)}°N, {weatherData.longitude.toFixed(4)}°E
+             <span className="opacity-50">•</span>
              {format(new Date(), 'EEE, MMM d')}
           </p>
         </div>
-        <button 
+        <button
           onClick={() => setShowSettings(!showSettings)}
-          className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors flex items-center gap-2"
+          className="p-2 bg-elevated hover:bg-app-hover text-secondary rounded-lg transition-colors flex items-center gap-2"
         >
           <Settings size={20} />
-          <span className="text-xs font-bold hidden sm:inline">Alert Config</span>
+          <span className="text-xs font-bold hidden sm:inline">{t('dashboard.alertConfig')}</span>
         </button>
       </header>
 
       {showSettings && (
-        <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl shadow-2xl animate-in fade-in slide-in-from-top-4 mb-6 relative z-50">
-          <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-2">
-            <h3 className="font-bold text-white flex items-center gap-2">
-              <Bell size={16} className="text-blue-400" /> Alert Configuration
+        <div className="bg-card border border-app p-4 rounded-xl shadow-2xl animate-in fade-in slide-in-from-top-4 mb-6 relative z-50">
+          <div className="flex justify-between items-center mb-4 border-b border-subtle pb-2">
+            <h3 className="font-bold text-primary flex items-center gap-2">
+              <Bell size={16} className="text-accent" /> {t('dashboard.alertConfiguration')}
             </h3>
-            <button onClick={() => setShowSettings(false)} className="text-slate-500 hover:text-slate-300"><X size={16} /></button>
+            <button onClick={() => setShowSettings(false)} className="text-muted hover:text-secondary"><X size={16} /></button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
              <div className="space-y-4">
                  <div>
-                    <label className="text-xs text-slate-400 flex justify-between mb-1">Wave Threshold (m) <span className="text-white">{alertConfig.waveHeightThreshold}</span></label>
-                    <input type="range" min="0.5" max="10" step="0.5" value={alertConfig.waveHeightThreshold} onChange={(e)=>setAlertConfig({...alertConfig, waveHeightThreshold: parseFloat(e.target.value)})} className="w-full h-2 bg-slate-700 rounded-lg cursor-pointer accent-blue-500"/>
+                    <label className="text-xs text-secondary flex justify-between mb-1">{t('dashboard.waveThreshold')} (m) <span className="text-primary">{alertConfig.waveHeightThreshold}</span></label>
+                    <input type="range" min="0.5" max="10" step="0.5" value={alertConfig.waveHeightThreshold} onChange={(e)=>setAlertConfig({...alertConfig, waveHeightThreshold: parseFloat(e.target.value)})} className="w-full h-2 bg-elevated rounded-lg cursor-pointer accent-blue-500"/>
                  </div>
                  <div>
-                    <label className="text-xs text-slate-400 flex justify-between mb-1">Wind Threshold (km/h) <span className="text-white">{alertConfig.windSpeedThreshold}</span></label>
-                    <input type="range" min="10" max="100" step="5" value={alertConfig.windSpeedThreshold} onChange={(e)=>setAlertConfig({...alertConfig, windSpeedThreshold: parseFloat(e.target.value)})} className="w-full h-2 bg-slate-700 rounded-lg cursor-pointer accent-cyan-500"/>
+                    <label className="text-xs text-secondary flex justify-between mb-1">{t('dashboard.windThreshold')} (km/h) <span className="text-primary">{alertConfig.windSpeedThreshold}</span></label>
+                    <input type="range" min="10" max="100" step="5" value={alertConfig.windSpeedThreshold} onChange={(e)=>setAlertConfig({...alertConfig, windSpeedThreshold: parseFloat(e.target.value)})} className="w-full h-2 bg-elevated rounded-lg cursor-pointer accent-cyan-500"/>
                  </div>
                  <div className="flex items-center justify-between p-3 bg-red-950/30 border border-red-900/50 rounded-lg">
                     <div className="flex items-center gap-2">
                         <Waves size={16} className="text-red-500" />
-                        <span className="text-sm font-bold text-red-200">Tsunami Alert Simulation</span>
+                        <span className="text-sm font-bold text-red-200">{t('dashboard.tsunamiSimulation')}</span>
                     </div>
-                    <input 
-                        type="checkbox" 
-                        checked={alertConfig.simulateTsunami} 
+                    <input
+                        type="checkbox"
+                        checked={alertConfig.simulateTsunami}
                         onChange={(e) => setAlertConfig({...alertConfig, simulateTsunami: e.target.checked})}
                         className="w-4 h-4 rounded border-red-500 bg-transparent accent-red-600"
                     />
@@ -424,36 +459,36 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
         </div>
       )}
 
-      <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-lg">
-         <h3 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2 mb-4">
-             <Flag size={14} /> Activity Report
+      <div className="bg-card border border-app p-4 rounded-xl shadow-lg">
+         <h3 className="text-xs font-bold text-secondary uppercase flex items-center gap-2 mb-4">
+             <Flag size={14} /> {t('activity.report')}
          </h3>
          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {sailingCondition && (
-                <div className={`p-4 rounded-lg border border-slate-700/50 flex items-center gap-4 ${sailingCondition.bg} relative`}>
-                   <sailingCondition.icon className={sailingCondition.color} size={32} />
-                   <div>
-                      <div className={`font-bold text-lg ${sailingCondition.color}`}>{sailingCondition.label} Sailing</div>
-                      <div className="text-xs text-slate-400 leading-tight">{sailingCondition.description}</div>
+                <div className={`p-4 rounded-lg border border-subtle flex items-center gap-4 ${sailingCondition.bg} relative`}>
+                   <sailingCondition.icon className={`${sailingCondition.color} rtl:order-2`} size={32} />
+                   <div className="rtl:order-1">
+                      <div className={`font-bold text-lg ${sailingCondition.color}`}>{sailingCondition.label} {t('activity.sailing.label')}</div>
+                      <div className="text-xs text-secondary leading-tight">{sailingCondition.description}</div>
                    </div>
                 </div>
               )}
-              
+
               {surfStats && (
                  <div className="grid grid-cols-2 gap-2 relative">
-                    <div className="bg-slate-800 p-3 rounded-lg flex flex-col items-center justify-center border border-slate-700 relative">
-                       <div className="text-[10px] text-slate-500 uppercase mb-1">Surf</div>
+                    <div className="bg-elevated p-3 rounded-lg flex flex-col items-center justify-center border border-subtle relative">
+                       <div className="text-[10px] text-muted uppercase mb-1">{t('activity.surf.label')}</div>
                        <div className={`font-bold text-xl ${surfStats.surf.color}`}>{surfStats.surf.rating}</div>
                     </div>
-                    <div className="bg-slate-800 p-3 rounded-lg flex flex-col items-center justify-center border border-slate-700">
-                       <div className="text-[10px] text-slate-500 uppercase mb-1">Kite</div>
-                       
+                    <div className="bg-elevated p-3 rounded-lg flex flex-col items-center justify-center border border-subtle">
+                       <div className="text-[10px] text-muted uppercase mb-1">{t('activity.kite.label')}</div>
+
                        {/* Updated Kite Card to show only wind data */}
                        <div className="flex flex-col items-center">
-                          <div className="font-bold text-lg text-white font-mono flex items-center gap-1">
-                             {currentConditions.wind.toFixed(0)} <span className="text-xs text-slate-400 font-sans">km/h</span>
+                          <div className="font-bold text-lg text-primary font-mono flex items-center gap-1">
+                             {currentConditions.wind.toFixed(0)} <span className="text-xs text-secondary font-sans">km/h</span>
                           </div>
-                          <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-1">
+                          <div className="flex items-center gap-1 text-[10px] text-secondary mt-1">
                              <Navigation size={10} style={{ transform: `rotate(${currentConditions.windDirection}deg)` }} className="text-cyan-400" />
                              <span>{getCardinalDirection(currentConditions.windDirection)}</span>
                           </div>
@@ -461,20 +496,20 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
                     </div>
                  </div>
               )}
-              
+
               {beachStats && (
-                <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 flex flex-col justify-between relative">
+                <div className="bg-elevated p-3 rounded-lg border border-subtle flex flex-col justify-between relative">
                    <div className="flex justify-between items-start">
                       <div>
-                         <span className="text-xs font-bold text-slate-300 flex items-center gap-2"><Palmtree size={14}/> Beach Day</span>
+                         <span className="text-xs font-bold text-secondary flex items-center gap-2 rtl:flex-row-reverse"><Palmtree size={14}/> {t('activity.beach.label')}</span>
                          <div className={`text-lg font-bold ${beachStats.color}`}>{beachStats.status}</div>
                       </div>
-                      <div className="text-right mr-6">
-                         <div className="text-xs text-slate-400">Current UV</div>
-                         <div className="font-bold text-white">{beachStats.uvIndex.toFixed(0)}</div>
+                      <div className="text-right rtl:text-left mr-6 rtl:mr-0 rtl:ml-6">
+                         <div className="text-xs text-secondary">{t('weather.currentUV')}</div>
+                         <div className="font-bold text-primary">{beachStats.uvIndex.toFixed(0)}</div>
                       </div>
                    </div>
-                   <div className="text-[10px] text-slate-500 mt-2">{beachStats.message}</div>
+                   <div className="text-[10px] text-muted mt-2">{beachStats.message}</div>
                 </div>
               )}
          </div>
@@ -482,141 +517,141 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {/* WAVE */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl relative overflow-hidden group">
+        <div className="bg-card border border-app p-4 rounded-xl relative overflow-hidden group">
            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity"><Activity size={64} /></div>
-           <div className="flex items-center gap-2 mb-2 text-slate-400">
-              <Activity size={16} className="text-blue-400"/>
-              <span className="text-xs font-bold uppercase">Wave Height</span>
+           <div className="flex items-center gap-2 mb-2 text-secondary">
+              <Activity size={16} className="text-accent"/>
+              <span className="text-xs font-bold uppercase">{t('weather.waveHeight')}</span>
            </div>
            <div className="flex items-baseline gap-1">
-             <span className="text-3xl font-bold text-white">{currentConditions.wave.toFixed(1)}</span>
-             <span className="text-sm text-slate-500">m</span>
+             <span className="text-3xl font-bold text-primary">{currentConditions.wave.toFixed(1)}</span>
+             <span className="text-sm text-muted">m</span>
            </div>
-           <p className="text-xs text-slate-500 mt-1">Period: {currentConditions.wavePeriod.toFixed(1)}s</p>
+           <p className="text-xs text-muted mt-1">{t('weather.period')}: {currentConditions.wavePeriod.toFixed(1)}s</p>
         </div>
 
         {/* WIND */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl relative overflow-hidden group">
+        <div className="bg-card border border-app p-4 rounded-xl relative overflow-hidden group">
            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity"><Wind size={64} /></div>
-           <div className="flex items-center gap-2 mb-2 text-slate-400">
+           <div className="flex items-center gap-2 mb-2 text-secondary">
               <Wind size={16} className="text-cyan-400"/>
-              <span className="text-xs font-bold uppercase">Wind Speed</span>
+              <span className="text-xs font-bold uppercase">{t('weather.windSpeed')}</span>
            </div>
            <div className="flex items-baseline gap-1">
-             <span className="text-3xl font-bold text-white">{currentConditions.wind.toFixed(0)}</span>
-             <span className="text-sm text-slate-500">km/h</span>
+             <span className="text-3xl font-bold text-primary">{currentConditions.wind.toFixed(0)}</span>
+             <span className="text-sm text-muted">km/h</span>
            </div>
-           <div className="flex items-center gap-1 mt-1 text-slate-500 text-xs">
+           <div className="flex items-center gap-1 mt-1 text-muted text-xs">
               <Navigation size={12} style={{ transform: `rotate(${currentConditions.windDirection}deg)` }} />
               <span>{getCardinalDirection(currentConditions.windDirection)} ({currentConditions.windDirection}°)</span>
            </div>
         </div>
 
         {/* SWELL - Updated Icon to Waves */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl relative overflow-hidden group">
+        <div className="bg-card border border-app p-4 rounded-xl relative overflow-hidden group">
            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity"><Waves size={64} /></div>
-           <div className="flex items-center gap-2 mb-2 text-slate-400">
+           <div className="flex items-center gap-2 mb-2 text-secondary">
               <Waves size={16} className="text-teal-400"/>
-              <span className="text-xs font-bold uppercase">Swell</span>
+              <span className="text-xs font-bold uppercase">{t('weather.swell')}</span>
            </div>
            <div className="flex items-baseline gap-1">
-             <span className="text-3xl font-bold text-white">{currentConditions.swell.toFixed(1)}</span>
-             <span className="text-sm text-slate-500">m</span>
+             <span className="text-3xl font-bold text-primary">{currentConditions.swell.toFixed(1)}</span>
+             <span className="text-sm text-muted">m</span>
            </div>
-           <div className="mt-1 text-slate-500 text-xs">
+           <div className="mt-1 text-muted text-xs">
               <div className="flex items-center gap-1 mb-1">
                  <Navigation size={12} style={{ transform: `rotate(${currentConditions.swellDirection}deg)` }} />
                  <span>{getCardinalDirection(currentConditions.swellDirection)}</span>
               </div>
-              <div className="font-semibold text-teal-500/80">Period: {currentConditions.swellPeriod.toFixed(1)}s</div>
+              <div className="font-semibold text-teal-500/80">{t('weather.period')}: {currentConditions.swellPeriod.toFixed(1)}s</div>
            </div>
         </div>
 
         {/* TEMP (AIR + SEA) - Updated Icon to Thermometer */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl relative overflow-hidden group">
+        <div className="bg-card border border-app p-4 rounded-xl relative overflow-hidden group">
            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity"><Thermometer size={64} /></div>
            <div className="flex justify-between h-full">
                {/* Air Temp */}
                <div className="flex flex-col justify-between">
-                   <div className="flex items-center gap-2 text-slate-400">
+                   <div className="flex items-center gap-2 text-secondary">
                       <Thermometer size={16} className="text-yellow-400"/>
-                      <span className="text-xs font-bold uppercase">Air</span>
+                      <span className="text-xs font-bold uppercase">{t('weather.air')}</span>
                    </div>
                    <div className="flex items-baseline gap-1">
-                     <span className="text-3xl font-bold text-white">{weatherData.general?.temperature.toFixed(0)}</span>
-                     <span className="text-sm text-slate-500">°C</span>
+                     <span className="text-3xl font-bold text-primary">{weatherData.general?.temperature.toFixed(0)}</span>
+                     <span className="text-sm text-muted">°C</span>
                    </div>
                </div>
 
-               <div className="w-px bg-slate-800 mx-2"></div>
+               <div className="w-px bg-subtle mx-2"></div>
 
                {/* Sea Temp */}
                <div className="flex flex-col justify-between">
-                   <div className="flex items-center gap-2 text-slate-400">
-                      <Waves size={16} className="text-blue-400"/>
-                      <span className="text-xs font-bold uppercase">Sea</span>
+                   <div className="flex items-center gap-2 text-secondary">
+                      <Waves size={16} className="text-accent"/>
+                      <span className="text-xs font-bold uppercase">{t('weather.sea')}</span>
                    </div>
                    <div className="flex items-baseline gap-1">
-                     <span className="text-3xl font-bold text-white">{currentConditions.seaTemp?.toFixed(0)}</span>
-                     <span className="text-sm text-slate-500">°C</span>
+                     <span className="text-3xl font-bold text-primary">{currentConditions.seaTemp?.toFixed(0)}</span>
+                     <span className="text-sm text-muted">°C</span>
                    </div>
                </div>
            </div>
-           <p className="text-xs text-slate-500 mt-2 absolute bottom-2 left-4">Feels {weatherData.general?.feelsLike.toFixed(0)}°</p>
+           <p className="text-xs text-muted mt-2 absolute bottom-2 left-4">{t('weather.feelsLike')} {weatherData.general?.feelsLike.toFixed(0)}°</p>
         </div>
       </div>
 
       {/* COMBINED INTERACTIVE GRAPH CONTAINER */}
-      <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl min-w-0">
-          
+      <div className="bg-card border border-app p-4 rounded-xl min-w-0">
+
           <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
              <div className="flex items-center gap-2">
                  {/* Icon changes based on active tab */}
-                 {activeGraph === 'tide' && <Waves size={16} className="text-blue-400" />}
-                 {activeGraph === 'wave' && <Activity size={16} className="text-blue-400" />}
+                 {activeGraph === 'tide' && <Waves size={16} className="text-accent" />}
+                 {activeGraph === 'wave' && <Activity size={16} className="text-accent" />}
                  {activeGraph === 'swell' && <Layers size={16} className="text-teal-400" />}
-                 
-                 <h3 className="text-xs font-bold text-slate-400 uppercase">
-                    {activeGraph === 'tide' && "Tide Schedule & Sea Level"}
-                    {activeGraph === 'wave' && "Wave Forecast (Height & Period)"}
-                    {activeGraph === 'swell' && "Swell Forecast (Height & Period)"}
+
+                 <h3 className="text-xs font-bold text-secondary uppercase">
+                    {activeGraph === 'tide' && t('forecast.tideSchedule')}
+                    {activeGraph === 'wave' && t('forecast.waveForecast')}
+                    {activeGraph === 'swell' && t('forecast.swellForecast')}
                  </h3>
              </div>
 
              {/* Tab Switcher */}
-             <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
-                 <button 
+             <div className="flex bg-app-base p-1 rounded-lg border border-subtle">
+                 <button
                    onClick={() => setActiveGraph('wave')}
-                   className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeGraph === 'wave' ? 'bg-blue-600/20 text-blue-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                   className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeGraph === 'wave' ? 'bg-blue-600/20 text-accent shadow-sm' : 'text-muted hover:text-secondary'}`}
                  >
-                   Waves
+                   {t('forecast.waves')}
                  </button>
-                 <button 
+                 <button
                    onClick={() => setActiveGraph('swell')}
-                   className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeGraph === 'swell' ? 'bg-teal-600/20 text-teal-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                   className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeGraph === 'swell' ? 'bg-teal-600/20 text-teal-400 shadow-sm' : 'text-muted hover:text-secondary'}`}
                  >
-                   Swell
+                   {t('forecast.swell')}
                  </button>
-                 <button 
+                 <button
                    onClick={() => setActiveGraph('tide')}
-                   className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeGraph === 'tide' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                   className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeGraph === 'tide' ? 'bg-elevated text-primary shadow-sm' : 'text-muted hover:text-secondary'}`}
                  >
-                   Tides
+                   {t('forecast.tides')}
                  </button>
              </div>
           </div>
-          
+
           {/* Active Graph Indicator / Legend Area */}
           <div className="flex gap-4 mb-2 text-xs items-center pl-2">
              {activeGraph === 'tide' && weatherData.tides && (
                   <div className="flex gap-4">
-                     <div className="flex items-center gap-1"><ArrowUp size={12} className="text-blue-400" /><span className="text-slate-300">High: {format(parseISO(weatherData.tides.nextHigh.time), 'HH:mm')}</span></div>
-                     <div className="flex items-center gap-1"><ArrowDown size={12} className="text-blue-400" /><span className="text-slate-300">Low: {format(parseISO(weatherData.tides.nextLow.time), 'HH:mm')}</span></div>
+                     <div className="flex items-center gap-1"><ArrowUp size={12} className="text-accent" /><span className="text-secondary">{t('forecast.high')}: {format(parseISO(weatherData.tides.nextHigh.time), 'HH:mm')}</span></div>
+                     <div className="flex items-center gap-1"><ArrowDown size={12} className="text-accent" /><span className="text-secondary">{t('forecast.low')}: {format(parseISO(weatherData.tides.nextLow.time), 'HH:mm')}</span></div>
                      {currentConditions.seaLevel !== undefined && (
-                        <div className="hidden md:flex gap-1 items-center bg-slate-800/50 px-2 py-0.5 rounded">
+                        <div className="hidden md:flex gap-1 items-center bg-elevated/50 px-2 py-0.5 rounded">
                             <Ruler size={10} className="text-teal-400" />
-                            <span className="text-slate-400">MSL:</span>
-                            <span className="text-white font-bold">{currentConditions.seaLevel.toFixed(2)}m</span>
+                            <span className="text-secondary">MSL:</span>
+                            <span className="text-primary font-bold">{currentConditions.seaLevel.toFixed(2)}m</span>
                         </div>
                      )}
                   </div>
@@ -625,11 +660,11 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
                  <>
                    <div className="flex items-center gap-2">
                       <div className={`w-3 h-3 rounded-full opacity-50 ${activeGraph === 'wave' ? 'bg-blue-500' : 'bg-teal-500'}`}></div>
-                      <span className="text-slate-400">Height (m)</span>
+                      <span className="text-secondary">{t('weather.height')} (m)</span>
                    </div>
                    <div className="flex items-center gap-2">
                       <div className="w-3 h-1 bg-yellow-400 rounded-full"></div>
-                      <span className="text-slate-400">Period (s)</span>
+                      <span className="text-secondary">{t('weather.period')} (s)</span>
                    </div>
                  </>
              )}
@@ -641,54 +676,54 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
                   <AreaChart data={tideChartData}>
                     <defs>
                       <linearGradient id="colorTide" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="var(--chart-primary)" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="var(--chart-primary)" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                    <XAxis dataKey="displayTime" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                    <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} domain={['dataMin - 0.5', 'dataMax + 0.5']} />
-                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} itemStyle={{ color: '#e2e8f0' }} />
-                    <Area type="monotone" dataKey="height" stroke="#3b82f6" fillOpacity={1} fill="url(#colorTide)" strokeWidth={2} name="Tide Height" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                    <XAxis dataKey="displayTime" stroke="var(--chart-text)" fontSize={10} tickLine={false} axisLine={false} />
+                    <YAxis stroke="var(--chart-text)" fontSize={10} tickLine={false} axisLine={false} domain={['dataMin - 0.5', 'dataMax + 0.5']} />
+                    <Tooltip contentStyle={{ backgroundColor: 'var(--app-bg-card)', borderColor: 'var(--app-border)' }} itemStyle={{ color: 'var(--text-primary)' }} />
+                    <Area type="monotone" dataKey="height" stroke="var(--chart-primary)" fillOpacity={1} fill="url(#colorTide)" strokeWidth={2} name={t('forecast.tideHeight')} />
                   </AreaChart>
                ) : (
                   <ComposedChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                      <XAxis dataKey="displayTime" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                      
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                      <XAxis dataKey="displayTime" stroke="var(--chart-text)" fontSize={10} tickLine={false} axisLine={false} />
+
                       {/* Left Axis: Height (Meters) */}
-                      <YAxis 
-                          yAxisId="left" 
-                          stroke="#64748b" 
-                          fontSize={10} 
-                          tickLine={false} 
-                          axisLine={false} 
-                          label={{ value: 'm', angle: -90, position: 'insideLeft', fill: '#64748b' }}
-                      />
-                      
-                      {/* Right Axis: Period (Seconds) */}
-                      <YAxis 
-                          yAxisId="right" 
-                          orientation="right" 
-                          stroke="#64748b" 
-                          fontSize={10} 
-                          tickLine={false} 
+                      <YAxis
+                          yAxisId="left"
+                          stroke="var(--chart-text)"
+                          fontSize={10}
+                          tickLine={false}
                           axisLine={false}
-                          domain={[0, 20]}
-                          label={{ value: 's', angle: 90, position: 'insideRight', fill: '#64748b' }}
+                          label={{ value: 'm', angle: -90, position: 'insideLeft', fill: 'var(--chart-text)' }}
                       />
 
-                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} itemStyle={{ color: '#e2e8f0' }} labelStyle={{ color: '#94a3b8' }} />
-                      
+                      {/* Right Axis: Period (Seconds) */}
+                      <YAxis
+                          yAxisId="right"
+                          orientation="right"
+                          stroke="var(--chart-text)"
+                          fontSize={10}
+                          tickLine={false}
+                          axisLine={false}
+                          domain={[0, 20]}
+                          label={{ value: 's', angle: 90, position: 'insideRight', fill: 'var(--chart-text)' }}
+                      />
+
+                      <Tooltip contentStyle={{ backgroundColor: 'var(--app-bg-card)', borderColor: 'var(--app-border)' }} itemStyle={{ color: 'var(--text-primary)' }} labelStyle={{ color: 'var(--text-secondary)' }} />
+
                       {activeGraph === 'wave' ? (
                           <>
-                             <Area yAxisId="left" type="monotone" dataKey="waveHeight" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} strokeWidth={2} name="Wave Height" />
-                             <Line yAxisId="right" type="monotone" dataKey="wavePeriod" stroke="#facc15" strokeWidth={2} dot={false} name="Wave Period" />
+                             <Area yAxisId="left" type="monotone" dataKey="waveHeight" stroke="var(--chart-primary)" fill="var(--chart-primary)" fillOpacity={0.2} strokeWidth={2} name={t('weather.waveHeight')} />
+                             <Line yAxisId="right" type="monotone" dataKey="wavePeriod" stroke="#facc15" strokeWidth={2} dot={false} name={t('weather.wavePeriod')} />
                           </>
                       ) : (
                           <>
-                             <Area yAxisId="left" type="monotone" dataKey="swellHeight" stroke="#14b8a6" fill="#14b8a6" fillOpacity={0.2} strokeWidth={2} name="Swell Height" />
-                             <Line yAxisId="right" type="monotone" dataKey="swellPeriod" stroke="#facc15" strokeWidth={2} dot={false} name="Swell Period" />
+                             <Area yAxisId="left" type="monotone" dataKey="swellHeight" stroke="var(--chart-secondary)" fill="var(--chart-secondary)" fillOpacity={0.2} strokeWidth={2} name={t('weather.swellHeight')} />
+                             <Line yAxisId="right" type="monotone" dataKey="swellPeriod" stroke="#facc15" strokeWidth={2} dot={false} name={t('weather.swellPeriod')} />
                           </>
                       )}
                   </ComposedChart>
@@ -697,83 +732,83 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
           </div>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden relative">
-        <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-            <h3 className="text-sm font-bold text-slate-300 uppercase flex items-center gap-2">
-                <Compass size={16} className="text-blue-400" />
-                {forecastTab === 'mariner' && "Mariner's Forecast (IMS)"}
-                {forecastTab === 'surfer' && "Surfer's Forecast"}
-                {forecastTab === 'kite' && "Kite Surfer's Forecast"}
-                {forecastTab === 'beach' && "Seashore Forecast"}
+      <div className="bg-card border border-app rounded-xl overflow-hidden relative">
+        <div className="p-4 border-b border-subtle flex justify-between items-center bg-card/50">
+            <h3 className="text-sm font-bold text-secondary uppercase flex items-center gap-2">
+                <Compass size={16} className="text-accent" />
+                {forecastTab === 'mariner' && t('forecast.marinerForecast')}
+                {forecastTab === 'surfer' && t('forecast.surferForecast')}
+                {forecastTab === 'kite' && t('forecast.kiteForecast')}
+                {forecastTab === 'beach' && t('forecast.beachForecast')}
             </h3>
             <div className="flex gap-2">
-                <button onClick={handlePrevTab} className="p-1 hover:bg-slate-800 rounded"><ChevronLeft size={20} className="text-slate-400"/></button>
-                <button onClick={handleNextTab} className="p-1 hover:bg-slate-800 rounded"><ChevronRight size={20} className="text-slate-400"/></button>
+                <button onClick={handlePrevTab} className="p-1 hover:bg-elevated rounded"><ChevronLeft size={20} className="text-secondary rtl:rotate-180"/></button>
+                <button onClick={handleNextTab} className="p-1 hover:bg-elevated rounded"><ChevronRight size={20} className="text-secondary rtl:rotate-180"/></button>
             </div>
         </div>
 
         <div className="overflow-x-auto min-h-[200px] transition-all duration-300 ease-in-out">
-            <table className="w-full text-left text-xs text-slate-400 min-w-[800px]">
-                <thead className="bg-slate-950 text-slate-300 uppercase font-bold text-[10px] tracking-wider">
+            <table className="w-full text-left text-xs text-secondary min-w-[800px]">
+                <thead className="bg-app-base text-secondary uppercase font-bold text-[10px] tracking-wider">
                     <tr>
-                        <th className="p-3 border-r border-slate-800 w-32">Period</th>
+                        <th className="p-3 border-r border-subtle w-32">{t('table.period')}</th>
                         {forecastTab === 'mariner' && (
                             <>
-                                <th className="p-3 border-r border-slate-800">Pressure</th>
-                                <th className="p-3 border-r border-slate-800">Sea Status</th>
-                                <th className="p-3 border-r border-slate-800">Wind</th>
-                                <th className="p-3 border-r border-slate-800">Visibility</th>
-                                <th className="p-3 border-r border-slate-800">Weather</th>
-                                <th className="p-3">Swell</th>
+                                <th className="p-3 border-r border-subtle">{t('table.pressure')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.seaStatus')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.wind')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.visibility')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.weather')}</th>
+                                <th className="p-3">{t('table.swell')}</th>
                             </>
                         )}
                         {forecastTab === 'surfer' && (
                             <>
-                                <th className="p-3 border-r border-slate-800">Wave Height</th>
-                                <th className="p-3 border-r border-slate-800">Period</th>
-                                <th className="p-3 border-r border-slate-800">Swell Height</th>
-                                <th className="p-3 border-r border-slate-800">Swell Period</th>
-                                <th className="p-3 border-r border-slate-800">Swell Dir</th>
-                                <th className="p-3">Rating</th>
+                                <th className="p-3 border-r border-subtle">{t('table.waveHeight')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.period')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.swellHeight')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.swellPeriod')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.swellDir')}</th>
+                                <th className="p-3">{t('table.rating')}</th>
                             </>
                         )}
                         {forecastTab === 'kite' && (
                             <>
-                                <th className="p-3 border-r border-slate-800">Wind Speed</th>
-                                <th className="p-3 border-r border-slate-800">Direction</th>
-                                <th className="p-3 border-r border-slate-800">Wave Height</th>
-                                <th className="p-3 border-r border-slate-800">Weather</th>
-                                <th className="p-3">Condition</th>
+                                <th className="p-3 border-r border-subtle">{t('table.windSpeed')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.direction')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.waveHeight')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.weather')}</th>
+                                <th className="p-3">{t('table.condition')}</th>
                             </>
                         )}
                         {forecastTab === 'beach' && (
                              <>
-                                <th className="p-3 border-r border-slate-800">Temp</th>
-                                <th className="p-3 border-r border-slate-800">UV Index</th>
-                                <th className="p-3 border-r border-slate-800">Wind (Sand)</th>
-                                <th className="p-3 border-r border-slate-800">Sea State</th>
-                                <th className="p-3">Comfort</th>
+                                <th className="p-3 border-r border-subtle">{t('table.temp')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.uvIndex')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.windSand')}</th>
+                                <th className="p-3 border-r border-subtle">{t('table.seaState')}</th>
+                                <th className="p-3">{t('table.comfort')}</th>
                             </>
                         )}
                     </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y divide-subtle">
                     {forecastTableBlocks.map((row, idx) => (
-                        <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
-                            <td className="p-3 border-r border-slate-800">
-                                <div className="font-bold text-white mb-1">{row.period}</div>
-                                <div className="text-[10px] text-slate-500">{row.date}</div>
+                        <tr key={idx} className="hover:bg-elevated/50 transition-colors">
+                            <td className="p-3 border-r border-subtle">
+                                <div className="font-bold text-primary mb-1">{row.period}</div>
+                                <div className="text-[10px] text-muted">{row.date}</div>
                             </td>
 
                             {forecastTab === 'mariner' && (
                                 <>
-                                    <td className="p-3 border-r border-slate-800">{row.pressure}</td>
-                                    <td className="p-3 border-r border-slate-800 text-slate-200">{row.seaStatus}</td>
-                                    <td className="p-3 border-r border-slate-800 text-white font-medium">{row.wind}</td>
-                                    <td className="p-3 border-r border-slate-800">{row.visibility}</td>
-                                    <td className="p-3 border-r border-slate-800 flex items-center gap-1.5">
+                                    <td className="p-3 border-r border-subtle">{row.pressure}</td>
+                                    <td className="p-3 border-r border-subtle text-secondary">{row.seaStatus}</td>
+                                    <td className="p-3 border-r border-subtle text-primary font-medium">{row.wind}</td>
+                                    <td className="p-3 border-r border-subtle">{row.visibility}</td>
+                                    <td className="p-3 border-r border-subtle flex items-center gap-1.5">
                                         <WeatherAnimation code={row.weatherCode} />
-                                        {row.weather}
+                                        {getWeatherConditionTranslated(row.weatherCode)}
                                     </td>
                                     <td className="p-3 text-teal-400">{row.swell} ({row.swellHeight}m)</td>
                                 </>
@@ -781,50 +816,50 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
 
                              {forecastTab === 'surfer' && (
                                 <>
-                                    <td className="p-3 border-r border-slate-800 font-bold text-blue-300">{row.waveHeight}</td>
-                                    <td className="p-3 border-r border-slate-800">{row.wavePeriod}s</td>
-                                    <td className="p-3 border-r border-slate-800 font-medium text-teal-300">{row.swellHeight}m</td>
-                                    <td className="p-3 border-r border-slate-800">{row.swellPeriod}s</td>
-                                    <td className="p-3 border-r border-slate-800">{row.swell}</td>
+                                    <td className="p-3 border-r border-subtle font-bold text-blue-300">{row.waveHeight}</td>
+                                    <td className="p-3 border-r border-subtle">{row.wavePeriod}s</td>
+                                    <td className="p-3 border-r border-subtle font-medium text-teal-300">{row.swellHeight}m</td>
+                                    <td className="p-3 border-r border-subtle">{row.swellPeriod}s</td>
+                                    <td className="p-3 border-r border-subtle">{row.swell}</td>
                                     <td className="p-3">
-                                        {parseFloat(row.wavePeriod) > 9 ? <span className="text-green-400 font-bold">Good</span> : <span className="text-slate-500">Poor</span>}
+                                        {parseFloat(row.wavePeriod) > 9 ? <span className="text-green-400 font-bold">{t('activity.surf.good')}</span> : <span className="text-muted">{t('activity.surf.poor')}</span>}
                                     </td>
                                 </>
                             )}
 
                             {forecastTab === 'kite' && (
                                 <>
-                                    <td className="p-3 border-r border-slate-800 font-bold text-cyan-300">{row.wind.split('(')[1]?.replace(')', '') || row.wind}</td>
-                                    <td className="p-3 border-r border-slate-800">{row.wind.split('(')[0]}</td>
-                                    <td className="p-3 border-r border-slate-800">{row.waveHeight}</td>
-                                    <td className="p-3 border-r border-slate-800 flex items-center gap-1.5">
+                                    <td className="p-3 border-r border-subtle font-bold text-cyan-300">{row.wind.split('(')[1]?.replace(')', '') || row.wind}</td>
+                                    <td className="p-3 border-r border-subtle">{row.wind.split('(')[0]}</td>
+                                    <td className="p-3 border-r border-subtle">{row.waveHeight}</td>
+                                    <td className="p-3 border-r border-subtle flex items-center gap-1.5">
                                          <WeatherAnimation code={row.weatherCode} />
-                                         {row.weather}
+                                         {getWeatherConditionTranslated(row.weatherCode)}
                                     </td>
                                     <td className="p-3">
-                                        {row.wind.includes("20-") || row.wind.includes("25-") ? <span className="text-green-400 font-bold">Optimal</span> : <span className="text-slate-500">Light</span>}
+                                        {row.wind.includes("20-") || row.wind.includes("25-") ? <span className="text-green-400 font-bold">{t('activity.kite.optimal')}</span> : <span className="text-muted">{t('activity.kite.light')}</span>}
                                     </td>
                                 </>
                             )}
                              {forecastTab === 'beach' && (
                                 <>
-                                    <td className="p-3 border-r border-slate-800 font-bold text-yellow-300">{row.temp}°C</td>
-                                    <td className="p-3 border-r border-slate-800">{row.uv}</td>
-                                    <td className="p-3 border-r border-slate-800">{row.wind}</td>
-                                    <td className="p-3 border-r border-slate-800">{row.seaStatus.split('(')[0]}</td>
+                                    <td className="p-3 border-r border-subtle font-bold text-yellow-300">{row.temp}°C</td>
+                                    <td className="p-3 border-r border-subtle">{row.uv}</td>
+                                    <td className="p-3 border-r border-subtle">{row.wind}</td>
+                                    <td className="p-3 border-r border-subtle">{row.seaStatus.split('(')[0]}</td>
                                     <td className="p-3">
                                         {(() => {
                                             const code = row.weatherCode;
-                                            const t = parseFloat(row.temp);
+                                            const temp = parseFloat(row.temp);
                                             const wind = parseFloat(row.wind.split('-')[1] || row.wind);
-                                            
-                                            if (code >= 51 || code >= 80) return <span className="text-red-400 font-bold">Poor (Rain)</span>;
-                                            if (code === 3 && t <= 20) return <span className="text-slate-400">Cool & Cloudy</span>;
-                                            if (code === 3) return <span className="text-slate-400">Cloudy</span>;
-                                            if (t < 18) return <span className="text-blue-300">Cold</span>;
-                                            if (t < 22) return <span className="text-blue-200">Cool</span>;
-                                            if (wind > 30) return <span className="text-orange-400">Windy</span>;
-                                            return <span className="text-green-400 font-bold">Great</span>;
+
+                                            if (code >= 51 || code >= 80) return <span className="text-red-400 font-bold">{t('activity.beach.poorRain')}</span>;
+                                            if (code === 3 && temp <= 20) return <span className="text-secondary">{t('activity.beach.coolCloudy')}</span>;
+                                            if (code === 3) return <span className="text-secondary">{t('activity.beach.cloudy')}</span>;
+                                            if (temp < 18) return <span className="text-blue-300">{t('activity.beach.cold')}</span>;
+                                            if (temp < 22) return <span className="text-blue-200">{t('activity.beach.cool')}</span>;
+                                            if (wind > 30) return <span className="text-orange-400">{t('activity.beach.windy')}</span>;
+                                            return <span className="text-green-400 font-bold">{t('activity.beach.great')}</span>;
                                         })()}
                                     </td>
                                 </>
@@ -835,8 +870,8 @@ const Dashboard: React.FC<DashboardProps> = ({ weatherData, loading, error, loca
             </table>
         </div>
         <div className="absolute bottom-2 right-4 flex gap-1 justify-center">
-            {['mariner', 'surfer', 'kite', 'beach'].map((t) => (
-                <div key={t} className={`w-2 h-2 rounded-full ${forecastTab === t ? 'bg-blue-500' : 'bg-slate-700'}`} />
+            {['mariner', 'surfer', 'kite', 'beach'].map((tab) => (
+                <div key={tab} className={`w-2 h-2 rounded-full ${forecastTab === tab ? 'bg-blue-500' : 'bg-subtle'}`} />
             ))}
         </div>
       </div>

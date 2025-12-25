@@ -32,6 +32,37 @@
   --color-night-950: #020617;
   --color-night-900: #0f172a;
   --color-night-800: #1e293b;
+
+  /* Theme-aware semantic color mappings (default to Deep Ocean / Light Mode) */
+  --app-bg-base: var(--color-ocean-base);
+  --app-bg-card: var(--color-ocean-dark);
+  --app-bg-elevated: #052549;
+  --app-border: var(--color-ocean-border);
+  --app-border-subtle: #074873;
+
+  /* Text colors */
+  --text-primary: #ffffff;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-accent: var(--color-ocean-aqua);
+
+  /* Interactive elements */
+  --bg-button: var(--color-ocean-teal);
+  --bg-button-hover: #00a5a5;
+  --bg-button-secondary: #074873;
+  --bg-button-secondary-hover: #085a91;
+
+  /* Interactive states */
+  --bg-hover: rgba(1, 101, 141, 0.2);
+  --bg-active: rgba(1, 101, 141, 0.3);
+  --bg-selected: rgba(0, 141, 141, 0.15);
+
+  /* Chart colors for Deep Ocean theme */
+  --chart-primary: var(--color-ocean-aqua);
+  --chart-secondary: var(--color-ocean-teal);
+  --chart-tertiary: #3b82f6;
+  --chart-grid: rgba(1, 101, 141, 0.3);
+  --chart-text: #94a3b8;
 }
 
 /* Provide explicit light/dark class mappings for reliability.
@@ -47,6 +78,33 @@
   --color-ocean-border: #01658d;
   --color-ocean-teal: #008d8d;
   --color-ocean-aqua: #54e0ca;
+
+  /* Semantic mappings for light mode */
+  --app-bg-base: var(--color-ocean-base);
+  --app-bg-card: var(--color-ocean-dark);
+  --app-bg-elevated: #052549;
+  --app-border: var(--color-ocean-border);
+  --app-border-subtle: #074873;
+
+  --text-primary: #ffffff;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-accent: var(--color-ocean-aqua);
+
+  --bg-button: var(--color-ocean-teal);
+  --bg-button-hover: #00a5a5;
+  --bg-button-secondary: #074873;
+  --bg-button-secondary-hover: #085a91;
+
+  --bg-hover: rgba(1, 101, 141, 0.2);
+  --bg-active: rgba(1, 101, 141, 0.3);
+  --bg-selected: rgba(0, 141, 141, 0.15);
+
+  --chart-primary: var(--color-ocean-aqua);
+  --chart-secondary: var(--color-ocean-teal);
+  --chart-tertiary: #3b82f6;
+  --chart-grid: rgba(1, 101, 141, 0.3);
+  --chart-text: #94a3b8;
 }
 
 :root.dark, .dark {
@@ -57,10 +115,143 @@
   /* Accent colors in dark mode use slightly muted/contrasting tones */
   --color-ocean-teal: #2563eb; /* accent for dark */
   --color-ocean-aqua: #60a5fa; /* muted aqua for contrast at night */
+
+  /* Semantic mappings for dark mode - SWAPPED for better contrast */
+  --app-bg-base: #020617; /* Darkest - main app background (night-950) */
+  --app-bg-card: #0f172a; /* Lighter - cards stand out (night-900) */
+  --app-bg-elevated: #1e293b; /* Lightest - elevated elements (night-800) */
+  --app-border: var(--color-ocean-border);
+  --app-border-subtle: #334155;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  --text-accent: var(--color-ocean-aqua);
+
+  --bg-button: var(--color-ocean-teal);
+  --bg-button-hover: #3b82f6;
+  --bg-button-secondary: #1e293b;
+  --bg-button-secondary-hover: #334155;
+
+  --bg-hover: rgba(30, 41, 59, 0.5);
+  --bg-active: rgba(30, 41, 59, 0.7);
+  --bg-selected: rgba(37, 99, 235, 0.15);
+
+  --chart-primary: var(--color-ocean-aqua);
+  --chart-secondary: var(--color-ocean-teal);
+  --chart-tertiary: #818cf8;
+  --chart-grid: rgba(51, 65, 85, 0.5);
+  --chart-text: #94a3b8;
 }
 
 /* Small transition for smooth theme swaps */
-html { transition: background-color .2s ease, color .2s ease; }
+html {
+  transition: background-color .2s ease, color .2s ease;
+}
+
+/* Apply transition to all theme-dependent elements */
+* {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: ease;
+  transition-duration: 0.2s;
+}
+
+/* Theme-aware utility classes
+   These classes automatically adapt based on the active theme (.light or .dark on documentElement)
+   Use these instead of hardcoded Tailwind classes for consistent theming */
+
+/* Background utilities */
+.bg-app-base {
+  background-color: var(--app-bg-base);
+}
+
+.bg-card {
+  background-color: var(--app-bg-card);
+}
+
+.bg-elevated {
+  background-color: var(--app-bg-elevated);
+}
+
+.bg-button {
+  background-color: var(--bg-button);
+}
+
+.bg-button:hover {
+  background-color: var(--bg-button-hover);
+}
+
+.bg-button-secondary {
+  background-color: var(--bg-button-secondary);
+}
+
+.bg-button-secondary:hover {
+  background-color: var(--bg-button-secondary-hover);
+}
+
+.bg-hover:hover {
+  background-color: var(--bg-hover);
+}
+
+.bg-active:active,
+.bg-active[data-active="true"] {
+  background-color: var(--bg-active);
+}
+
+.bg-selected,
+.bg-selected[data-selected="true"] {
+  background-color: var(--bg-selected);
+}
+
+/* Border utilities */
+.border-app {
+  border-color: var(--app-border);
+}
+
+.border-subtle {
+  border-color: var(--app-border-subtle);
+}
+
+/* Text utilities */
+.text-primary {
+  color: var(--text-primary);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-accent {
+  color: var(--text-accent);
+}
+
+/* Chart utilities */
+.chart-grid {
+  stroke: var(--chart-grid);
+}
+
+.chart-text {
+  fill: var(--chart-text);
+}
+
+.chart-primary {
+  stroke: var(--chart-primary);
+  fill: var(--chart-primary);
+}
+
+.chart-secondary {
+  stroke: var(--chart-secondary);
+  fill: var(--chart-secondary);
+}
+
+.chart-tertiary {
+  stroke: var(--chart-tertiary);
+  fill: var(--chart-tertiary);
+}
 
 /* Recharts responsive containers can sometimes compute -1 sizes during layout
    if parents are using flex/animations. Provide safe minimums so charts render. */

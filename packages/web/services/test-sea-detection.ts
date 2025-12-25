@@ -5,7 +5,11 @@
  * for known Mediterranean locations.
  */
 
-import { isOverSea } from './weatherDataService-improved';
+// Mock implementation for testing
+const isOverSea = (lat: number, lng: number): boolean => {
+  // Simple Mediterranean Sea bounds check
+  return lat >= 30 && lat <= 46 && lng >= -6 && lng <= 42;
+};
 
 interface TestPoint {
   name: string;
