@@ -5,7 +5,6 @@ import MapComponent from './components/MapComponent';
 import Atmosphere from './components/Atmosphere';
 import { RoutePlanningView } from './components/RoutePlanningView';
 import { CoastsMarinasView } from './components/CoastsMarinasView';
-import { CacheStatusIndicator } from './src/components/CacheStatusIndicator';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { LanguageSelector } from './src/components/LanguageSelector';
 import { LayoutDashboard, Map as MapIcon, Cloud, Navigation, Anchor, MapPin, Plus, Search, X, Check, Moon, Sun } from 'lucide-react';
@@ -409,10 +408,22 @@ const App: React.FC = () => {
             <span className="text-xs font-medium">{t('nav.marinas')}</span>
           </button>
         </div>
-      </div>
 
-        {/* Cache Status Indicator (bottom-right) */}
-        <CacheStatusIndicator />
+        {/* Attribution Footer */}
+        <div className="text-center mt-2">
+          <p className="text-xs text-muted">
+            Weather data by{' '}
+            <a
+              href="https://open-meteo.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent hover:text-accent/80 transition-colors underline"
+            >
+              Open-Meteo.com
+            </a>
+          </p>
+        </div>
+      </div>
       </div>
     </ErrorBoundary>
   );
