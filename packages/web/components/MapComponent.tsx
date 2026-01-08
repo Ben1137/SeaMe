@@ -1,12 +1,18 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import * as L from 'leaflet';
-import { Coordinate, PointForecast, DetailedPointForecast, fetchPointForecast, fetchHourlyPointForecast, fetchBulkPointForecast } from '@seame/core';
+import { Coordinate, PointForecast, DetailedPointForecast, fetchPointForecast, fetchHourlyPointForecast, fetchBulkPointForecast, fetchMarineGridData, convertToVelocityFormat, generateWaveGridCells } from '@seame/core';
 import { Trash2, Navigation, MapPin, Wind, Layers, Waves, X, Clock, Activity, Droplets, ChevronDown, ChevronUp } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { useTranslation } from 'react-i18next';
-// Wind velocity and wave heatmap layers removed per user request
+import { VelocityLayer } from './map/VelocityLayer';
+import { WaveHeatmapLayer } from './map/WaveHeatmapLayer';
+import { SmoothWaveHeatmap } from './map/SmoothWaveHeatmap';
+// import { CrispLandMask, CrispLandMaskStyles } from './map/CrispLandMask'; // Removed: SmoothWaveHeatmap now handles land clipping internally
+import { ColorScaleLegend } from './map/ColorScaleLegend';
+import { COLOR_SCALES } from '../utils/colorScales';
+import { UNIFIED_PARTICLE_CONFIG, DARK_MAP_CONFIG, LAND_MASK_CONFIG } from '../utils/particleConfig';
 
 const DefaultIcon = L.icon({
   iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
@@ -31,6 +37,7 @@ interface RouteLeg {
 }
 
 type MapLayer = 'NONE' | 'WIND' | 'WAVE' | 'SWELL' | 'CURRENTS' | 'WIND_WAVE' | 'SIGNIFICANT_WAVE';
+type AdvancedLayer = 'NONE' | 'WIND_PARTICLES' | 'CURRENT_PARTICLES' | 'WAVE_HEATMAP';
 
 const toRad = (deg: number) => deg * Math.PI / 180;
 const toDeg = (rad: number) => rad * 180 / Math.PI;
@@ -97,13 +104,24 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
   const [isDetailSidebarOpen, setIsDetailSidebarOpen] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
+  // Advanced Layers State
+  const [advancedLayer, setAdvancedLayer] = useState<AdvancedLayer>('NONE');
+  const [velocityData, setVelocityData] = useState<L.VelocityData | null>(null);
+  const [waveHeatmapData, setWaveHeatmapData] = useState<Array<{lat: number; lng: number; value: number; color: string}>>([]);
+  const [loadingAdvancedLayer, setLoadingAdvancedLayer] = useState(false);
+
   useEffect(() => {
     if (mapContainer.current && !mapInstance.current) {
       // Initialize map with zoom 8 for a "Country/Region" view
-      const map = L.map(mapContainer.current).setView([currentLocation.lat, currentLocation.lng], 8);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors',
-        className: 'map-tiles'
+      const map = L.map(mapContainer.current, {
+        preferCanvas: true, // Better performance for particle layers
+      }).setView([currentLocation.lat, currentLocation.lng], 8);
+
+      // Use CartoDB Dark Matter tiles for Windy-style dark map
+      L.tileLayer(DARK_MAP_CONFIG.tileUrl, {
+        attribution: DARK_MAP_CONFIG.attribution,
+        className: 'map-tiles',
+        opacity: DARK_MAP_CONFIG.opacity,
       }).addTo(map);
 
       L.circleMarker([currentLocation.lat, currentLocation.lng], {
@@ -168,6 +186,37 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLayer]);
 
+  // Effect to trigger advanced layer update when advanced layer changes
+  // Debounced to prevent rapid API calls when switching layers quickly
+  useEffect(() => {
+      console.log('[MapComponent] Advanced layer changed to:', advancedLayer);
+
+      // Debounce layer switching to prevent rapid API calls
+      // Using 1500ms debounce to give time for other API requests to complete
+      // and avoid hitting Open-Meteo's rate limits
+      const timeoutId = setTimeout(() => {
+          console.log('[MapComponent] Debounce timeout completed, calling updateAdvancedLayer');
+          updateAdvancedLayer();
+      }, 1500); // 1500ms debounce to prevent API rate limiting
+
+      // Cleanup: cancel the timeout if layer changes again before timeout completes
+      return () => {
+          console.log('[MapComponent] Cleaning up debounce timeout');
+          clearTimeout(timeoutId);
+      };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [advancedLayer]);
+
+  // Debug logging for velocityData changes
+  useEffect(() => {
+      console.log('[MapComponent] velocityData state changed:', velocityData);
+      console.log('[MapComponent] velocityData is null:', velocityData === null);
+      console.log('[MapComponent] velocityData is undefined:', velocityData === undefined);
+      if (velocityData) {
+          console.log('[MapComponent] velocityData type:', Array.isArray(velocityData) ? 'array' : typeof velocityData);
+      }
+  }, [velocityData]);
+
   const updateWeatherGrid = async () => {
       if (!mapInstance.current || !layerGroupRef.current) return;
 
@@ -212,6 +261,191 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
           console.error("Failed to fetch grid", e);
       } finally {
           setLoadingGrid(false);
+      }
+  };
+
+  // Ref to track if an advanced layer update is in progress
+  const advancedLayerUpdateInProgress = useRef(false);
+
+  const updateAdvancedLayer = async () => {
+      console.log('[MapComponent] updateAdvancedLayer called, advancedLayer:', advancedLayer);
+
+      if (!mapInstance.current) {
+          console.log('[MapComponent] No map instance, returning');
+          return;
+      }
+
+      if (advancedLayer === 'NONE') {
+          console.log('[MapComponent] Setting layers to null');
+          setVelocityData(null);
+          setWaveHeatmapData([]);
+          return;
+      }
+
+      // Prevent duplicate API calls
+      if (advancedLayerUpdateInProgress.current) {
+          console.log('[MapComponent] Advanced layer update already in progress, skipping');
+          return;
+      }
+
+      advancedLayerUpdateInProgress.current = true;
+      setLoadingAdvancedLayer(true);
+
+      // Clear previous data first to ensure clean layer transition
+      setVelocityData(null);
+      setWaveHeatmapData([]);
+
+      // Small delay to allow React to clean up the previous layer
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      try {
+          const bounds = mapInstance.current.getBounds();
+          const boundingBox = {
+              north: bounds.getNorth(),
+              south: bounds.getSouth(),
+              east: bounds.getEast(),
+              west: bounds.getWest()
+          };
+          console.log('[MapComponent] Bounding box:', boundingBox);
+
+          // Fetch grid data with higher resolution for better sea coverage
+          // Using different resolutions based on layer type
+          // Wave heatmap uses higher resolution for smoother interpolation
+          // Note: 16x16 = 256 points is safe for API URL limits
+          const resolution = advancedLayer === 'WAVE_HEATMAP'
+              ? { latPoints: 16, lngPoints: 16 }  // 256 points - higher for smooth heatmap coverage
+              : { latPoints: 12, lngPoints: 12 }; // 144 points for particles
+
+          console.log('[MapComponent] Fetching grid data with resolution:', resolution);
+          const gridData = await fetchMarineGridData(boundingBox, resolution);
+          console.log('[MapComponent] Grid data received:', gridData);
+          console.log('[MapComponent] Grid data points count:', gridData?.points?.length);
+
+          if (advancedLayer === 'WIND_PARTICLES') {
+              console.log('[MapComponent] Converting to wind velocity format...');
+              const velocityField = convertToVelocityFormat(gridData, 'wind');
+              console.log('[MapComponent] Velocity field:', velocityField);
+              console.log('[MapComponent] Velocity field.wind:', velocityField.wind);
+              console.log('[MapComponent] Velocity field.wind type:', Array.isArray(velocityField.wind) ? 'array' : typeof velocityField.wind);
+              if (velocityField.wind) {
+                  console.log('[MapComponent] Wind data[0]:', velocityField.wind[0]);
+                  console.log('[MapComponent] Wind data[1]:', velocityField.wind[1]);
+
+                  // DETAILED DIAGNOSTIC LOGGING
+                  console.log('[MapComponent] === WIND DATA DETAILED STRUCTURE ===');
+                  console.log('[MapComponent] Wind data[0] header:', {
+                    parameterCategory: velocityField.wind[0]?.header?.parameterCategory,
+                    parameterNumber: velocityField.wind[0]?.header?.parameterNumber,
+                    nx: velocityField.wind[0]?.header?.nx,
+                    ny: velocityField.wind[0]?.header?.ny,
+                    lo1: velocityField.wind[0]?.header?.lo1,
+                    la1: velocityField.wind[0]?.header?.la1,
+                    lo2: velocityField.wind[0]?.header?.lo2,
+                    la2: velocityField.wind[0]?.header?.la2,
+                    dx: velocityField.wind[0]?.header?.dx,
+                    dy: velocityField.wind[0]?.header?.dy,
+                    refTime: velocityField.wind[0]?.header?.refTime,
+                    forecastTime: velocityField.wind[0]?.header?.forecastTime,
+                    parameterNumberName: velocityField.wind[0]?.header?.parameterNumberName,
+                  });
+                  console.log('[MapComponent] Wind data[0] values:', {
+                    dataIsArray: Array.isArray(velocityField.wind[0]?.data),
+                    dataLength: velocityField.wind[0]?.data?.length,
+                    dataSample: velocityField.wind[0]?.data?.slice(0, 5),
+                  });
+
+                  console.log('[MapComponent] Wind data[1] header:', {
+                    parameterCategory: velocityField.wind[1]?.header?.parameterCategory,
+                    parameterNumber: velocityField.wind[1]?.header?.parameterNumber,
+                    nx: velocityField.wind[1]?.header?.nx,
+                    ny: velocityField.wind[1]?.header?.ny,
+                    lo1: velocityField.wind[1]?.header?.lo1,
+                    la1: velocityField.wind[1]?.header?.la1,
+                    lo2: velocityField.wind[1]?.header?.lo2,
+                    la2: velocityField.wind[1]?.header?.la2,
+                    dx: velocityField.wind[1]?.header?.dx,
+                    dy: velocityField.wind[1]?.header?.dy,
+                    refTime: velocityField.wind[1]?.header?.refTime,
+                    forecastTime: velocityField.wind[1]?.header?.forecastTime,
+                    parameterNumberName: velocityField.wind[1]?.header?.parameterNumberName,
+                  });
+                  console.log('[MapComponent] Wind data[1] values:', {
+                    dataIsArray: Array.isArray(velocityField.wind[1]?.data),
+                    dataLength: velocityField.wind[1]?.data?.length,
+                    dataSample: velocityField.wind[1]?.data?.slice(0, 5),
+                  });
+
+                  console.log('[MapComponent] Parameter Number Check:');
+                  console.log('  [0] parameterCategory=', velocityField.wind[0]?.header?.parameterCategory, 'parameterNumber=', velocityField.wind[0]?.header?.parameterNumber, '-> Should be "2,2" for U-component');
+                  console.log('  [1] parameterCategory=', velocityField.wind[1]?.header?.parameterCategory, 'parameterNumber=', velocityField.wind[1]?.header?.parameterNumber, '-> Should be "2,3" for V-component');
+              }
+              setVelocityData(velocityField.wind);
+          } else if (advancedLayer === 'CURRENT_PARTICLES') {
+              console.log('[MapComponent] Converting to current velocity format...');
+              const velocityField = convertToVelocityFormat(gridData, 'current');
+              console.log('[MapComponent] Velocity field:', velocityField);
+              console.log('[MapComponent] Velocity field.current:', velocityField.current);
+
+              // Check if there's actual current data (not all zeros)
+              const hasCurrentData = gridData.points.some((p: any) => p.currentSpeed > 0.001);
+              console.log('[MapComponent] Has non-zero current data:', hasCurrentData);
+
+              // DETAILED DIAGNOSTIC LOGGING FOR CURRENTS
+              if (velocityField.current) {
+                  const uData = velocityField.current[0]?.data || [];
+                  const vData = velocityField.current[1]?.data || [];
+                  const hasNonZeroU = uData.some((v: number) => Math.abs(v) > 0.001);
+                  const hasNonZeroV = vData.some((v: number) => Math.abs(v) > 0.001);
+
+                  console.log('[MapComponent] === CURRENT DATA DETAILED STRUCTURE ===');
+                  console.log('[MapComponent] U-component has non-zero values:', hasNonZeroU);
+                  console.log('[MapComponent] V-component has non-zero values:', hasNonZeroV);
+                  console.log('[MapComponent] U data sample:', uData.slice(0, 10));
+                  console.log('[MapComponent] V data sample:', vData.slice(0, 10));
+
+                  // Check if grid data has current data
+                  console.log('[MapComponent] Grid points current data check:', gridData.points.slice(0, 5).map((p: any) => ({
+                      lat: p.lat.toFixed(2),
+                      lng: p.lng.toFixed(2),
+                      currentSpeed: p.currentSpeed,
+                      currentDirection: p.currentDirection,
+                      currentU: p.currentU?.toFixed(4),
+                      currentV: p.currentV?.toFixed(4)
+                  })));
+
+                  if (!hasNonZeroU && !hasNonZeroV) {
+                      console.warn('[MapComponent] ⚠️ No ocean current data available for this region');
+                      console.warn('[MapComponent] Open-Meteo Marine API may not have current data for this area');
+                  }
+              }
+
+              setVelocityData(velocityField.current);
+          } else if (advancedLayer === 'WAVE_HEATMAP') {
+              console.log('[MapComponent] Generating wave grid cells...');
+              const waveGrid = generateWaveGridCells(gridData, 'wave');
+              console.log('[MapComponent] Wave grid:', waveGrid);
+              console.log('[MapComponent] Wave grid cells count:', waveGrid?.cells?.length);
+
+              // Filter out land points with balanced ocean detection
+              // A point is considered ocean if:
+              // 1. Wave height > 0.15m (balanced threshold for good coverage)
+              // 2. OR it has ocean current data (currentSpeed > 0)
+              const marineCells = waveGrid.cells.filter((cell, index) => {
+                  const point = gridData.points[index];
+                  const hasWaveActivity = cell.value > 0.1;
+                  const hasCurrentData = (point?.currentSpeed || 0) > 0.01;
+                  return hasWaveActivity || hasCurrentData;
+              });
+              console.log('[MapComponent] Marine cells after filtering:', marineCells.length);
+              console.log('[MapComponent] Filtered out land cells:', waveGrid.cells.length - marineCells.length);
+              setWaveHeatmapData(marineCells);
+          }
+      } catch (error) {
+          console.error('[MapComponent] Failed to fetch advanced layer data:', error);
+          console.error('[MapComponent] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      } finally {
+          setLoadingAdvancedLayer(false);
+          advancedLayerUpdateInProgress.current = false;
       }
   };
 
@@ -417,8 +651,12 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
 
   return (
     <div className="relative h-full w-full bg-card overflow-hidden">
-      {/* Map Container */}
-      <div ref={mapContainer} className="absolute inset-0 z-0" />
+      {/* Map Container with dark background */}
+      <div
+        ref={mapContainer}
+        className="absolute inset-0 z-0"
+        style={{ backgroundColor: DARK_MAP_CONFIG.backgroundColor }}
+      />
 
       {/* Map Layer Controls */}
       <div className="absolute top-4 right-4 z-[400] bg-elevated backdrop-blur border border-app rounded-lg shadow-xl text-xs w-36 animate-in fade-in slide-in-from-right-4 overflow-hidden">
@@ -475,8 +713,32 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
                >
                   <Activity size={12} /> {t('map.currents')}
                </button>
+
+               {/* Divider for Advanced Layers */}
+               <div className="border-t border-subtle my-2 pt-2">
+                  <div className="text-[10px] text-muted uppercase font-bold mb-1 px-2">Advanced Layers</div>
+               </div>
+
+               <button
+                 onClick={() => setAdvancedLayer(advancedLayer === 'WIND_PARTICLES' ? 'NONE' : 'WIND_PARTICLES')}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${advancedLayer === 'WIND_PARTICLES' ? 'bg-purple-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Wind size={12} /> Wind Particles
+               </button>
+               <button
+                 onClick={() => setAdvancedLayer(advancedLayer === 'CURRENT_PARTICLES' ? 'NONE' : 'CURRENT_PARTICLES')}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${advancedLayer === 'CURRENT_PARTICLES' ? 'bg-violet-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Activity size={12} /> Current Particles
+               </button>
+               <button
+                 onClick={() => setAdvancedLayer(advancedLayer === 'WAVE_HEATMAP' ? 'NONE' : 'WAVE_HEATMAP')}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${advancedLayer === 'WAVE_HEATMAP' ? 'bg-pink-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Waves size={12} /> Wave Heatmap
+               </button>
             </div>
-            {loadingGrid && (
+            {(loadingGrid || loadingAdvancedLayer) && (
                <div className="pb-2 px-2 text-[10px] text-center text-blue-300 animate-pulse">{t('map.updatingForecast')}</div>
             )}
           </div>
@@ -677,6 +939,78 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
                )}
           </div>
       )}
+
+      {/* Advanced Visualization Layers */}
+      {advancedLayer === 'WIND_PARTICLES' && (
+        <VelocityLayer
+          data={velocityData}
+          type="wind"
+          visible={true}
+          map={mapInstance.current}
+          maxVelocity={50}
+          particleMultiplier={UNIFIED_PARTICLE_CONFIG.particleMultiplier}
+          velocityScale={UNIFIED_PARTICLE_CONFIG.velocityScale}
+          lineWidth={UNIFIED_PARTICLE_CONFIG.lineWidth}
+          frameRate={UNIFIED_PARTICLE_CONFIG.frameRate}
+          opacity={UNIFIED_PARTICLE_CONFIG.opacity}
+        />
+      )}
+
+      {advancedLayer === 'CURRENT_PARTICLES' && (
+        <VelocityLayer
+          data={velocityData}
+          type="currents"
+          visible={true}
+          map={mapInstance.current}
+          maxVelocity={2.0}
+          particleMultiplier={UNIFIED_PARTICLE_CONFIG.particleMultiplier}
+          velocityScale={0.125}
+          lineWidth={UNIFIED_PARTICLE_CONFIG.lineWidth}
+          frameRate={UNIFIED_PARTICLE_CONFIG.frameRate}
+          opacity={UNIFIED_PARTICLE_CONFIG.opacity}
+        />
+      )}
+
+      {advancedLayer === 'WAVE_HEATMAP' && (
+        <SmoothWaveHeatmap
+          gridData={waveHeatmapData}
+          visible={true}
+          opacity={0.9}
+          map={mapInstance.current}
+        />
+      )}
+
+      {/* Crisp Land Mask - REMOVED: SmoothWaveHeatmap now handles invisible land clipping internally using GeoJSON mask */}
+      {/* This eliminates the gray overlay while preventing waves from climbing over land */}
+
+      {/* Color Scale Legend - Show when advanced layer is active */}
+      {advancedLayer === 'WIND_PARTICLES' && (
+        <ColorScaleLegend
+          scale={COLOR_SCALES.wind}
+          unit="km/h"
+          title={t('map.legend.windSpeed')}
+          position="bottomright"
+        />
+      )}
+
+      {advancedLayer === 'CURRENT_PARTICLES' && (
+        <ColorScaleLegend
+          scale={COLOR_SCALES.current}
+          unit="m/s"
+          title={t('map.legend.currentVelocity')}
+          position="bottomright"
+        />
+      )}
+
+      {advancedLayer === 'WAVE_HEATMAP' && (
+        <ColorScaleLegend
+          scale={COLOR_SCALES.windyWave}
+          unit="m"
+          title={t('map.legend.waveHeight')}
+          position="bottomright"
+        />
+      )}
+
     </div>
   );
 };

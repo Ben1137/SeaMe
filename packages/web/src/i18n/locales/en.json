@@ -260,7 +260,23 @@
     "loadingData": "Loading Data...",
     "waveSwellHeight": "Wave & Swell Height (m)",
     "windSpeedChart": "Wind Speed (km/h)",
-    "currentVelocity": "Current Velocity (km/h)"
+    "currentVelocity": "Current Velocity (km/h)",
+    "forecastTime": "Forecast Time",
+    "hoursAhead": "Hours Ahead",
+    "timeSlider": "Time slider",
+    "skipBack": "Skip back 6 hours",
+    "skipForward": "Skip forward 6 hours",
+    "playbackSpeed": "Playback speed",
+    "animating": "Animating forecast",
+    "legend": {
+      "waveHeight": "Wave Height",
+      "windSpeed": "Wind Speed",
+      "currentVelocity": "Current Velocity",
+      "seaTemperature": "Sea Temperature",
+      "swellHeight": "Swell Height",
+      "windWaveHeight": "Wind Wave Height",
+      "significantWaveHeight": "Significant Wave Height"
+    }
   },
   "units": {
     "meters": "m",
@@ -285,7 +301,10 @@
     "search": "Search",
     "add": "Add",
     "marineWeather": "Marine Weather",
-    "noData": "No weather data available."
+    "noData": "No weather data available.",
+    "now": "Now",
+    "play": "Play",
+    "pause": "Pause"
   }
   ,
   "ui": {

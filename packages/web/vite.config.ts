@@ -4,6 +4,12 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  server: {
+    fs: {
+      // Allow serving files from the workspace root (for monorepo packages)
+      allow: ['../..']
+    }
+  },
   plugins: [
     react(),
     VitePWA({
@@ -98,7 +104,7 @@ export default defineConfig({
         ]
       },
       devOptions: {
-        enabled: true, // Enable in development for testing
+        enabled: false, // Disabled in development to avoid base path issues
         type: 'module'
       }
     })

@@ -259,7 +259,23 @@
     "loadingData": "טוען נתונים...",
     "waveSwellHeight": "גובה גלים וסוול (מ׳)",
     "windSpeedChart": "מהירות רוח (קמ״ש)",
-    "currentVelocity": "מהירות זרם (קמ״ש)"
+    "currentVelocity": "מהירות זרם (קמ״ש)",
+    "forecastTime": "זמן תחזית",
+    "hoursAhead": "שעות קדימה",
+    "timeSlider": "מחוון זמן",
+    "skipBack": "קפיצה אחורה 6 שעות",
+    "skipForward": "קפיצה קדימה 6 שעות",
+    "playbackSpeed": "מהירות הפעלה",
+    "animating": "מנפיש תחזית",
+    "legend": {
+      "waveHeight": "גובה גלים",
+      "windSpeed": "מהירות רוח",
+      "currentVelocity": "מהירות זרם",
+      "seaTemperature": "טמפרטורת ים",
+      "swellHeight": "גובה סוול",
+      "windWaveHeight": "גובה גלי רוח",
+      "significantWaveHeight": "גובה גלים משמעותי"
+    }
   },
   "units": {
     "meters": "מ׳",
@@ -284,7 +300,10 @@
     "search": "חפש",
     "add": "הוסף",
     "marineWeather": "מזג אויר ימי",
-    "noData": "אין נתוני מזג אוויר זמינים."
+    "noData": "אין נתוני מזג אוויר זמינים.",
+    "now": "עכשיו",
+    "play": "הפעל",
+    "pause": "השהה"
   },
   "ui": {
     "confirm_new_content_reload": "תוכן חדש זמין. לטעון מחדש לעדכון?",
