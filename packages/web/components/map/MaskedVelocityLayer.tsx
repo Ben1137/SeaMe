@@ -3,12 +3,20 @@
  *
  * This component wraps the VelocityLayer and adds a canvas-based land mask
  * to prevent particles from rendering over land areas.
+ *
+ * Features:
+ * - Canvas alignment using Leaflet's layer point system
+ * - CSS transform during pan for smooth movement
+ * - Proper coordinate projection sync
+ * - Anti-aliased soft edges for natural coastline appearance
+ * - Date-line wrapping for seamless Pacific crossing
+ * - Semi-transparent mask for layered aesthetic
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import * as L from 'leaflet';
 import { VelocityLayer, VelocityLayerProps } from './VelocityLayer';
-import { SeaMask, renderLandMaskToCanvas } from './SeaMaskUtils';
+import { SeaMask, renderLandMaskToCanvas, LandMaskConfig } from './SeaMaskUtils';
 
 export interface MaskedVelocityLayerProps extends VelocityLayerProps {
   /**
@@ -22,7 +30,25 @@ export interface MaskedVelocityLayerProps extends VelocityLayerProps {
    * @default '50m'
    */
   maskResolution?: '10m' | '50m' | '110m';
+
+  /**
+   * Opacity of the land mask (0-1)
+   * Lower values allow map features to show through
+   * @default 0.85
+   */
+  maskOpacity?: number;
 }
+
+// Default mask configuration for velocity layer
+const VELOCITY_MASK_CONFIG: LandMaskConfig = {
+  // Semi-transparent dark color - allows map labels/borders to show through slightly
+  fillStyle: 'rgba(26, 26, 28, 0.85)',
+  // Enable soft edges for natural coastline appearance
+  softEdges: true,
+  blurRadius: 1.5,
+  // Enable date-line wrapping for seamless Pacific crossing
+  handleWrapping: true,
+};
 
 /**
  * MaskedVelocityLayer - Wraps VelocityLayer with land masking capability
@@ -30,6 +56,7 @@ export interface MaskedVelocityLayerProps extends VelocityLayerProps {
 export function MaskedVelocityLayer({
   enableLandMask = true,
   maskResolution = '50m',
+  maskOpacity = 0.85,
   ...velocityProps
 }: MaskedVelocityLayerProps) {
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -37,7 +64,52 @@ export function MaskedVelocityLayer({
   const maskPaneRef = useRef<HTMLElement | null>(null);
   const [isReady, setIsReady] = useState(false);
 
+  // Track the origin point for proper positioning
+  const originRef = useRef<L.Point | null>(null);
+
   const { map, visible } = velocityProps;
+
+  // Build mask config with current opacity
+  const getMaskConfig = useCallback((): LandMaskConfig => ({
+    ...VELOCITY_MASK_CONFIG,
+    fillStyle: `rgba(26, 26, 28, ${maskOpacity})`,
+  }), [maskOpacity]);
+
+  // Render land mask to canvas using the shared utility
+  const renderMask = useCallback(() => {
+    if (!maskCanvasRef.current || !map || !seaMaskRef.current?.isReady()) {
+      return;
+    }
+
+    const landFeatures = seaMaskRef.current.getLandFeatures();
+    if (!landFeatures) return;
+
+    const canvas = maskCanvasRef.current;
+
+    // Get the current map bounds and size
+    const size = map.getSize();
+    const bounds = map.getBounds();
+
+    // Calculate the origin (top-left corner in layer coordinates)
+    // Use Math.round to avoid sub-pixel jitter
+    const rawTopLeft = map.latLngToLayerPoint(bounds.getNorthWest());
+    const topLeft = L.point(Math.round(rawTopLeft.x), Math.round(rawTopLeft.y));
+    originRef.current = topLeft;
+
+    // Resize canvas if needed
+    if (canvas.width !== size.x || canvas.height !== size.y) {
+      canvas.width = size.x;
+      canvas.height = size.y;
+      canvas.style.width = `${size.x}px`;
+      canvas.style.height = `${size.y}px`;
+    }
+
+    // Use the shared rendering utility with all the improvements
+    renderLandMaskToCanvas(canvas, landFeatures, map, topLeft, getMaskConfig());
+
+    // Position the canvas using Leaflet's positioning system
+    L.DomUtil.setPosition(canvas, topLeft);
+  }, [map, getMaskConfig]);
 
   // Initialize SeaMask and create mask canvas
   useEffect(() => {
@@ -70,10 +142,8 @@ export function MaskedVelocityLayer({
       canvas.style.width = `${size.x}px`;
       canvas.style.height = `${size.y}px`;
       canvas.style.position = 'absolute';
-      canvas.style.top = '0';
-      canvas.style.left = '0';
       canvas.style.pointerEvents = 'none';
-      canvas.className = 'velocity-land-mask';
+      canvas.className = 'velocity-land-mask leaflet-zoom-animated';
 
       if (maskPaneRef.current) {
         maskPaneRef.current.appendChild(canvas);
@@ -84,7 +154,7 @@ export function MaskedVelocityLayer({
       renderMask();
       setIsReady(true);
 
-      console.log('[MaskedVelocityLayer] Land mask initialized');
+      console.log('[MaskedVelocityLayer] Land mask initialized with soft edges and wrapping support');
     };
 
     initMask();
@@ -96,108 +166,71 @@ export function MaskedVelocityLayer({
       }
       maskCanvasRef.current = null;
     };
-  }, [map, enableLandMask, maskResolution]);
+  }, [map, enableLandMask, maskResolution, renderMask]);
 
-  // Render land mask to canvas
-  const renderMask = () => {
-    if (!maskCanvasRef.current || !map || !seaMaskRef.current?.isReady()) {
-      return;
-    }
-
-    const landFeatures = seaMaskRef.current.getLandFeatures();
-    if (!landFeatures) return;
-
-    const canvas = maskCanvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw land as solid dark color (matches the dark map theme)
-    // This covers particles that would otherwise show over land
-    ctx.fillStyle = '#1a1a1c'; // Match dark map background
-
-    for (const feature of landFeatures.features) {
-      if (feature.geometry.type === 'Polygon') {
-        drawPolygon(ctx, map, feature.geometry.coordinates);
-      } else if (feature.geometry.type === 'MultiPolygon') {
-        for (const polygon of feature.geometry.coordinates) {
-          drawPolygon(ctx, map, polygon);
-        }
-      }
-    }
-  };
-
-  // Helper to draw polygon
-  const drawPolygon = (
-    ctx: CanvasRenderingContext2D,
-    map: L.Map,
-    coordinates: [number, number][][]
-  ) => {
-    ctx.beginPath();
-
-    // Outer ring
-    const outerRing = coordinates[0];
-    for (let i = 0; i < outerRing.length; i++) {
-      const [lng, lat] = outerRing[i];
-      const point = map.latLngToContainerPoint([lat, lng]);
-
-      if (i === 0) {
-        ctx.moveTo(point.x, point.y);
-      } else {
-        ctx.lineTo(point.x, point.y);
-      }
-    }
-    ctx.closePath();
-
-    // Handle holes
-    for (let h = 1; h < coordinates.length; h++) {
-      const hole = coordinates[h];
-      for (let i = 0; i < hole.length; i++) {
-        const [lng, lat] = hole[i];
-        const point = map.latLngToContainerPoint([lat, lng]);
-
-        if (i === 0) {
-          ctx.moveTo(point.x, point.y);
-        } else {
-          ctx.lineTo(point.x, point.y);
-        }
-      }
-      ctx.closePath();
-    }
-
-    ctx.fill('evenodd');
-  };
-
-  // Update mask on map move/zoom
+  // Update mask on map move/zoom with optimized performance
   useEffect(() => {
-    if (!map || !enableLandMask) return;
+    if (!map || !enableLandMask || !isReady) return;
+
+    // Track the start position for CSS transform during pan
+    let startOrigin: L.Point | null = null;
+
+    const handleMoveStart = () => {
+      // Remember where we started
+      if (originRef.current) {
+        startOrigin = originRef.current;
+      }
+    };
+
+    const handleMove = () => {
+      // During pan, use CSS transform for smooth movement (no canvas redraw)
+      if (!maskCanvasRef.current || !startOrigin) return;
+
+      const bounds = map.getBounds();
+      const currentTopLeft = map.latLngToLayerPoint(bounds.getNorthWest());
+
+      // Apply CSS transform relative to original position
+      // This moves the canvas smoothly without expensive redraws
+      L.DomUtil.setPosition(maskCanvasRef.current, currentTopLeft);
+    };
 
     const handleMoveEnd = () => {
-      // Resize canvas if needed
+      // On move end, do a full redraw to ensure accuracy
+      renderMask();
+      startOrigin = null;
+    };
+
+    const handleZoomEnd = () => {
+      // Zoom requires full redraw due to projection changes
+      renderMask();
+    };
+
+    const handleResize = () => {
       if (maskCanvasRef.current) {
         const size = map.getSize();
-        if (maskCanvasRef.current.width !== size.x || maskCanvasRef.current.height !== size.y) {
-          maskCanvasRef.current.width = size.x;
-          maskCanvasRef.current.height = size.y;
-          maskCanvasRef.current.style.width = `${size.x}px`;
-          maskCanvasRef.current.style.height = `${size.y}px`;
-        }
+        maskCanvasRef.current.width = size.x;
+        maskCanvasRef.current.height = size.y;
+        maskCanvasRef.current.style.width = `${size.x}px`;
+        maskCanvasRef.current.style.height = `${size.y}px`;
       }
       renderMask();
     };
 
+    // Attach event listeners
+    map.on('movestart', handleMoveStart);
+    map.on('move', handleMove);
     map.on('moveend', handleMoveEnd);
-    map.on('zoomend', handleMoveEnd);
-    map.on('resize', handleMoveEnd);
+    map.on('zoomend', handleZoomEnd);
+    map.on('resize', handleResize);
 
     return () => {
+      map.off('movestart', handleMoveStart);
+      map.off('move', handleMove);
       map.off('moveend', handleMoveEnd);
-      map.off('zoomend', handleMoveEnd);
-      map.off('resize', handleMoveEnd);
+      map.off('zoomend', handleZoomEnd);
+      map.off('resize', handleResize);
     };
-  }, [map, enableLandMask, isReady]);
+  }, [map, enableLandMask, isReady, renderMask]);
 
   // Show/hide mask based on visibility
   useEffect(() => {

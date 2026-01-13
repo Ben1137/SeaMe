@@ -7,7 +7,7 @@ export { MaskedVelocityLayer, type MaskedVelocityLayerProps } from './MaskedVelo
 
 // Sea Mask Utilities
 export { SeaMask, getSharedSeaMask, initializeSeaMask, renderLandMaskToCanvas } from './SeaMaskUtils';
-export type { Point, BoundingBox, SeaMaskConfig } from './SeaMaskUtils';
+export type { Point, BoundingBox, SeaMaskConfig, LandMaskConfig } from './SeaMaskUtils';
 
 // GeoJSON Layer Components
 export { GeoJSONLayers, type GeoJSONLayersProps } from './GeoJSONLayers';

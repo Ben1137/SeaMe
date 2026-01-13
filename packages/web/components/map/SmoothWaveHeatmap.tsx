@@ -1,7 +1,7 @@
 import L from 'leaflet';
 import { useEffect, useRef, useState } from 'react';
 import chroma from 'chroma-js';
-import { SeaMask, renderLandMaskToCanvas } from './SeaMaskUtils';
+import { SeaMask, renderLandMaskToCanvas, LandMaskConfig } from './SeaMaskUtils';
 
 // ------------------------------------------------------------------
 // Types & Interfaces
@@ -42,15 +42,6 @@ interface GridCache {
 // ------------------------------------------------------------------
 // Constants & Configuration - "Windy Look" Tuning
 // ------------------------------------------------------------------
-
-// GeoJSON Data for Land Clipping Mask
-// Local paths with fallback to remote for reliability
-const LAND_GEOJSON_LOCAL = {
-  '10m': '/SeaYou/geojson/10m/land.json',
-  '50m': '/SeaYou/geojson/50m/land.json',
-  '110m': '/SeaYou/geojson/110m/land.json'
-};
-const LAND_GEOJSON_FALLBACK = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_land.geojson';
 
 const PARTICLE_COUNT = 5000;         // High density for professional look
 const PARTICLE_SPEED_SCALE = 2.5;    // Fluid movement speed
@@ -162,58 +153,16 @@ function createGrid(data: WaveGridPoint[]): GridCache | null {
 }
 
 // ------------------------------------------------------------------
-// Canvas Rendering (Land Mask)
+// Canvas Rendering (Land Mask) - Uses shared utility from SeaMaskUtils
 // ------------------------------------------------------------------
 
-/**
- * Renders land features to a mask canvas
- * This mask will be used to clip out wave pixels that fall on land
- */
-function renderLandMask(
-  canvas: HTMLCanvasElement,
-  map: L.Map,
-  landFeatures: any
-) {
-  const ctx = canvas.getContext('2d');
-  if (!ctx || !landFeatures) return;
-
-  const { width, height } = canvas;
-  ctx.clearRect(0, 0, width, height);
-
-  // Draw land polygons
-  ctx.fillStyle = '#000000'; // Black = land to be clipped out
-
-  landFeatures.features.forEach((feature: any) => {
-    if (feature.geometry.type === 'Polygon') {
-      drawPolygon(ctx, map, feature.geometry.coordinates);
-    } else if (feature.geometry.type === 'MultiPolygon') {
-      feature.geometry.coordinates.forEach((polygon: any) => {
-        drawPolygon(ctx, map, polygon);
-      });
-    }
-  });
-}
-
-/**
- * Helper to draw a GeoJSON polygon to canvas
- */
-function drawPolygon(ctx: CanvasRenderingContext2D, map: L.Map, coordinates: any) {
-  coordinates.forEach((ring: any) => {
-    ctx.beginPath();
-    ring.forEach((coord: [number, number], i: number) => {
-      const [lng, lat] = coord;
-      const point = map.latLngToContainerPoint([lat, lng]);
-
-      if (i === 0) {
-        ctx.moveTo(point.x, point.y);
-      } else {
-        ctx.lineTo(point.x, point.y);
-      }
-    });
-    ctx.closePath();
-    ctx.fill();
-  });
-}
+// Configuration for wave heatmap land mask (used for destination-out clipping)
+const WAVE_MASK_CONFIG: LandMaskConfig = {
+  fillStyle: '#000000', // Solid black for clipping (destination-out composite)
+  softEdges: true,
+  blurRadius: 1.5,
+  handleWrapping: true,
+};
 
 // ------------------------------------------------------------------
 // Canvas Rendering (Heatmap)
@@ -340,6 +289,9 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
   // SeaMask for accurate point-in-sea checking
   const seaMaskRef = useRef<SeaMask | null>(null);
 
+  // Track origin for proper positioning
+  const originRef = useRef<L.Point | null>(null);
+
   // Initialize Grid Data
   useEffect(() => {
     if (gridData && gridData.length > 0) {
@@ -364,36 +316,7 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         return;
       }
 
-      // Fallback: Try local files directly if SeaMask fails
-      const localUrls = [
-        LAND_GEOJSON_LOCAL['10m'],
-        LAND_GEOJSON_LOCAL['50m'],
-        LAND_GEOJSON_LOCAL['110m']
-      ];
-
-      for (const url of localUrls) {
-        try {
-          const res = await fetch(url);
-          if (res.ok) {
-            const data = await res.json();
-            setLandFeatures(data);
-            console.log(`[SmoothWaveHeatmap] Land GeoJSON loaded from local: ${url}`);
-            return;
-          }
-        } catch (err) {
-          // Continue to next option
-        }
-      }
-
-      // Fallback to remote if local files not available
-      try {
-        const res = await fetch(LAND_GEOJSON_FALLBACK);
-        const data = await res.json();
-        setLandFeatures(data);
-        console.log('[SmoothWaveHeatmap] Land GeoJSON loaded from remote fallback');
-      } catch (err) {
-        console.error('[SmoothWaveHeatmap] Failed to load land GeoJSON from all sources:', err);
-      }
+      console.error('[SmoothWaveHeatmap] Failed to load land GeoJSON');
     };
 
     loadLandGeoJSON();
@@ -567,10 +490,16 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
     const CustomLayer = L.Layer.extend({
       onAdd: function(map: L.Map) {
         const size = map.getSize();
+        const bounds = map.getBounds();
+        // Use Math.round to avoid sub-pixel jitter
+        const rawTopLeft = map.latLngToLayerPoint(bounds.getNorthWest());
+        const topLeft = L.point(Math.round(rawTopLeft.x), Math.round(rawTopLeft.y));
+        originRef.current = topLeft;
+
         const dpr = window.devicePixelRatio || 1;
 
         // --- Heatmap Canvas (Background) ---
-        const canvas = L.DomUtil.create('canvas', 'leaflet-layer') as HTMLCanvasElement;
+        const canvas = L.DomUtil.create('canvas', 'leaflet-layer leaflet-zoom-animated') as HTMLCanvasElement;
         canvas.width = size.x * dpr;
         canvas.height = size.y * dpr;
         canvas.style.width = `${size.x}px`;
@@ -578,7 +507,7 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         canvas.style.pointerEvents = 'none';
 
         // --- Particle Canvas (Foreground) ---
-        const particleCanvas = L.DomUtil.create('canvas', 'leaflet-layer') as HTMLCanvasElement;
+        const particleCanvas = L.DomUtil.create('canvas', 'leaflet-layer leaflet-zoom-animated') as HTMLCanvasElement;
         particleCanvas.width = size.x;  // Particles run better at native res
         particleCanvas.height = size.y;
         particleCanvas.style.width = `${size.x}px`;
@@ -608,6 +537,10 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         // Initialize Particles
         particlesRef.current = Array.from({ length: PARTICLE_COUNT }, () => new Particle(size.x, size.y));
 
+        // Position canvases using Leaflet's layer point system
+        L.DomUtil.setPosition(canvas, topLeft);
+        L.DomUtil.setPosition(particleCanvas, topLeft);
+
         // Initial Draw
         this._update();
 
@@ -615,7 +548,9 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         cancelAnimationFrame(animationFrameRef.current);
         animateParticles();
 
-        // Event Listeners
+        // Event Listeners - optimized for smooth pan/zoom
+        map.on('movestart', this._onMoveStart, this);
+        map.on('move', this._onMove, this);
         map.on('moveend', this._update, this);
         map.on('zoomend', this._update, this);
         map.on('resize', this._resize, this);
@@ -634,9 +569,30 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         particleCanvasRef.current = null;
         maskCanvasRef.current = null;
 
+        map.off('movestart', this._onMoveStart, this);
+        map.off('move', this._onMove, this);
         map.off('moveend', this._update, this);
         map.off('zoomend', this._update, this);
         map.off('resize', this._resize, this);
+      },
+
+      _onMoveStart: function() {
+        // Store the starting origin for smooth CSS transforms during pan
+        if (originRef.current) {
+          this._startOrigin = originRef.current;
+        }
+      },
+
+      _onMove: function() {
+        // During pan, use CSS transforms for smooth movement (no canvas redraw)
+        if (!this._canvas || !this._particleCanvas) return;
+
+        const bounds = map.getBounds();
+        const currentTopLeft = map.latLngToLayerPoint(bounds.getNorthWest());
+
+        // Move canvases using Leaflet's positioning (uses CSS transforms internally)
+        L.DomUtil.setPosition(this._canvas, currentTopLeft);
+        L.DomUtil.setPosition(this._particleCanvas, currentTopLeft);
       },
 
       _resize: function() {
@@ -668,15 +624,18 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         if (!this._canvas || !gridCache.current) return;
 
         const bounds = map.getBounds();
-        const topLeft = map.latLngToLayerPoint(bounds.getNorthWest());
+        // Use Math.round to avoid sub-pixel jitter
+        const rawTopLeft = map.latLngToLayerPoint(bounds.getNorthWest());
+        const topLeft = L.point(Math.round(rawTopLeft.x), Math.round(rawTopLeft.y));
+        originRef.current = topLeft;
 
-        // Position canvases
+        // Position canvases using Leaflet's layer point system
         L.DomUtil.setPosition(this._canvas, topLeft);
         L.DomUtil.setPosition(this._particleCanvas, topLeft);
 
-        // Render land mask if available
+        // Render land mask if available - using shared utility with all improvements
         if (this._maskCanvas && landFeatures) {
-          renderLandMask(this._maskCanvas, map, landFeatures);
+          renderLandMaskToCanvas(this._maskCanvas, landFeatures, map, topLeft, WAVE_MASK_CONFIG);
         }
 
         // Render Static Heatmap with land mask clipping
@@ -702,7 +661,7 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         map.removeLayer(layerRef.current);
       }
     };
-  }, [map, visible, opacity]); // Re-run if map/visible/opacity changes
+  }, [map, visible, opacity, landFeatures]); // Include landFeatures dependency
 
   return null;
 };

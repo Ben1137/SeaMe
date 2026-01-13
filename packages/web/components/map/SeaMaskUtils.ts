@@ -332,54 +332,159 @@ export async function initializeSeaMask(resolution: '10m' | '50m' | '110m' = '50
 // ------------------------------------------------------------------
 
 /**
+ * Configuration for land mask rendering
+ */
+export interface LandMaskConfig {
+  /** Fill color for land areas (default: solid black for clipping) */
+  fillStyle?: string;
+  /** Enable soft edges with blur (default: true) */
+  softEdges?: boolean;
+  /** Blur radius in pixels for soft edges (default: 1.5) */
+  blurRadius?: number;
+  /** Handle date-line wrapping for world copies (default: true) */
+  handleWrapping?: boolean;
+}
+
+const DEFAULT_MASK_CONFIG: LandMaskConfig = {
+  fillStyle: '#000000',
+  softEdges: true,
+  blurRadius: 1.5,
+  handleWrapping: true,
+};
+
+/**
  * Render land features to a canvas for use as a clipping mask
  * This creates a mask where land areas are filled (to be cut out)
+ *
+ * IMPORTANT: Uses latLngToLayerPoint for consistent projection with other layers.
+ * The origin parameter is the top-left corner in layer coordinates.
+ *
+ * Features:
+ * - Anti-aliased soft edges using canvas filter blur
+ * - Date-line wrapping support for seamless Pacific crossing
+ * - Configurable fill style for transparency effects
  */
 export function renderLandMaskToCanvas(
   canvas: HTMLCanvasElement,
   landFeatures: any,
-  map: L.Map
+  map: L.Map,
+  origin?: L.Point,
+  config: LandMaskConfig = {}
 ): void {
   const ctx = canvas.getContext('2d');
   if (!ctx || !landFeatures) return;
 
+  const mergedConfig = { ...DEFAULT_MASK_CONFIG, ...config };
   const { width, height } = canvas;
+
+  // Clear canvas
   ctx.clearRect(0, 0, width, height);
 
-  // Draw land polygons in black (to be cut out)
-  ctx.fillStyle = '#000000';
+  // Calculate origin if not provided, using Math.round to avoid sub-pixel jitter
+  const bounds = map.getBounds();
+  const rawOrigin = origin || map.latLngToLayerPoint(bounds.getNorthWest());
+  const topLeft = L.point(Math.round(rawOrigin.x), Math.round(rawOrigin.y));
 
+  // Calculate world width in pixels for date-line wrapping
+  const worldWidth = getWorldWidthInPixels(map);
+
+  // Apply soft edge blur filter before drawing
+  if (mergedConfig.softEdges && mergedConfig.blurRadius) {
+    ctx.filter = `blur(${mergedConfig.blurRadius}px)`;
+  }
+
+  // Set fill style
+  ctx.fillStyle = mergedConfig.fillStyle || '#000000';
+
+  // Draw all land polygons
   for (const feature of landFeatures.features) {
     if (feature.geometry.type === 'Polygon') {
-      drawPolygonToCanvas(ctx, map, feature.geometry.coordinates);
+      drawPolygonWithWrapping(ctx, map, feature.geometry.coordinates, topLeft, worldWidth, mergedConfig.handleWrapping);
     } else if (feature.geometry.type === 'MultiPolygon') {
       for (const polygon of feature.geometry.coordinates) {
-        drawPolygonToCanvas(ctx, map, polygon);
+        drawPolygonWithWrapping(ctx, map, polygon, topLeft, worldWidth, mergedConfig.handleWrapping);
+      }
+    }
+  }
+
+  // Reset filter after drawing
+  ctx.filter = 'none';
+}
+
+/**
+ * Get the width of one world copy in pixels at current zoom
+ */
+function getWorldWidthInPixels(map: L.Map): number {
+  const zoom = map.getZoom();
+  // Leaflet uses 256px tiles, world width = 256 * 2^zoom
+  return 256 * Math.pow(2, zoom);
+}
+
+/**
+ * Draw a polygon with date-line wrapping support
+ * Handles the case where the map is panned across the 180° meridian
+ */
+function drawPolygonWithWrapping(
+  ctx: CanvasRenderingContext2D,
+  map: L.Map,
+  coordinates: [number, number][][],
+  origin: L.Point,
+  worldWidth: number,
+  handleWrapping?: boolean
+): void {
+  // Draw the polygon at its primary position
+  drawPolygonToCanvas(ctx, map, coordinates, origin);
+
+  // If wrapping is enabled, draw additional copies for seamless scrolling
+  if (handleWrapping && worldWidth > 0) {
+    const canvasWidth = ctx.canvas.width;
+
+    // Check if we need to draw wrapped copies
+    // Draw copies to the left and right to handle infinite horizontal scrolling
+    const wrappingOffsets = [-worldWidth, worldWidth];
+
+    for (const offset of wrappingOffsets) {
+      // Create an offset origin for the wrapped copy
+      const wrappedOrigin = L.point(origin.x - offset, origin.y);
+
+      // Only draw if the wrapped polygon might be visible
+      // Quick check: if the offset would put the polygon completely off-screen, skip it
+      const potentiallyVisible = Math.abs(offset) < canvasWidth + worldWidth;
+
+      if (potentiallyVisible) {
+        drawPolygonToCanvas(ctx, map, coordinates, wrappedOrigin);
       }
     }
   }
 }
 
 /**
- * Helper to draw a GeoJSON polygon to canvas
+ * Helper to draw a GeoJSON polygon to canvas using layer points
+ * This ensures consistent coordinate projection across all layers
  */
 function drawPolygonToCanvas(
   ctx: CanvasRenderingContext2D,
   map: L.Map,
-  coordinates: [number, number][][]
+  coordinates: [number, number][][],
+  origin: L.Point
 ): void {
-  // Draw outer ring
   ctx.beginPath();
 
+  // Outer ring
   const outerRing = coordinates[0];
   for (let i = 0; i < outerRing.length; i++) {
+    // GeoJSON is [lng, lat], Leaflet expects [lat, lng]
     const [lng, lat] = outerRing[i];
-    const point = map.latLngToContainerPoint([lat, lng]);
+    const layerPoint = map.latLngToLayerPoint([lat, lng]);
+
+    // Convert to canvas coordinates relative to origin (rounded to avoid sub-pixel issues)
+    const x = Math.round(layerPoint.x - origin.x);
+    const y = Math.round(layerPoint.y - origin.y);
 
     if (i === 0) {
-      ctx.moveTo(point.x, point.y);
+      ctx.moveTo(x, y);
     } else {
-      ctx.lineTo(point.x, point.y);
+      ctx.lineTo(x, y);
     }
   }
   ctx.closePath();
@@ -389,12 +494,14 @@ function drawPolygonToCanvas(
     const hole = coordinates[h];
     for (let i = 0; i < hole.length; i++) {
       const [lng, lat] = hole[i];
-      const point = map.latLngToContainerPoint([lat, lng]);
+      const layerPoint = map.latLngToLayerPoint([lat, lng]);
+      const x = Math.round(layerPoint.x - origin.x);
+      const y = Math.round(layerPoint.y - origin.y);
 
       if (i === 0) {
-        ctx.moveTo(point.x, point.y);
+        ctx.moveTo(x, y);
       } else {
-        ctx.lineTo(point.x, point.y);
+        ctx.lineTo(x, y);
       }
     }
     ctx.closePath();
