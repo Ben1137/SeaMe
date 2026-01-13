@@ -1,6 +1,7 @@
 import L from 'leaflet';
 import { useEffect, useRef, useState } from 'react';
 import chroma from 'chroma-js';
+import { SeaMask, renderLandMaskToCanvas } from './SeaMaskUtils';
 
 // ------------------------------------------------------------------
 // Types & Interfaces
@@ -43,7 +44,13 @@ interface GridCache {
 // ------------------------------------------------------------------
 
 // GeoJSON Data for Land Clipping Mask
-const LAND_GEOJSON_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_land.geojson';
+// Local paths with fallback to remote for reliability
+const LAND_GEOJSON_LOCAL = {
+  '10m': '/SeaYou/geojson/10m/land.json',
+  '50m': '/SeaYou/geojson/50m/land.json',
+  '110m': '/SeaYou/geojson/110m/land.json'
+};
+const LAND_GEOJSON_FALLBACK = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_land.geojson';
 
 const PARTICLE_COUNT = 5000;         // High density for professional look
 const PARTICLE_SPEED_SCALE = 2.5;    // Fluid movement speed
@@ -330,6 +337,9 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
   // Land features for clipping mask
   const [landFeatures, setLandFeatures] = useState<any>(null);
 
+  // SeaMask for accurate point-in-sea checking
+  const seaMaskRef = useRef<SeaMask | null>(null);
+
   // Initialize Grid Data
   useEffect(() => {
     if (gridData && gridData.length > 0) {
@@ -338,18 +348,80 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
     }
   }, [gridData]);
 
-  // Fetch Land GeoJSON for Clipping Mask
+  // Fetch Land GeoJSON for Clipping Mask and initialize SeaMask for accurate particle clipping
   useEffect(() => {
-    fetch(LAND_GEOJSON_URL)
-      .then(res => res.json())
-      .then(data => {
+    const loadLandGeoJSON = async () => {
+      // Initialize SeaMask for accurate point-in-sea checking (use 50m for good balance)
+      const seaMask = new SeaMask({ resolution: '50m' });
+      await seaMask.load();
+      seaMaskRef.current = seaMask;
+
+      // Get land features from SeaMask for canvas rendering
+      const features = seaMask.getLandFeatures();
+      if (features) {
+        setLandFeatures(features);
+        console.log('[SmoothWaveHeatmap] Land GeoJSON loaded via SeaMask (50m resolution)');
+        return;
+      }
+
+      // Fallback: Try local files directly if SeaMask fails
+      const localUrls = [
+        LAND_GEOJSON_LOCAL['10m'],
+        LAND_GEOJSON_LOCAL['50m'],
+        LAND_GEOJSON_LOCAL['110m']
+      ];
+
+      for (const url of localUrls) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            setLandFeatures(data);
+            console.log(`[SmoothWaveHeatmap] Land GeoJSON loaded from local: ${url}`);
+            return;
+          }
+        } catch (err) {
+          // Continue to next option
+        }
+      }
+
+      // Fallback to remote if local files not available
+      try {
+        const res = await fetch(LAND_GEOJSON_FALLBACK);
+        const data = await res.json();
         setLandFeatures(data);
-        console.log('[SmoothWaveHeatmap] Land GeoJSON loaded for clipping mask');
-      })
-      .catch(err => {
-        console.error('[SmoothWaveHeatmap] Failed to load land GeoJSON:', err);
-      });
+        console.log('[SmoothWaveHeatmap] Land GeoJSON loaded from remote fallback');
+      } catch (err) {
+        console.error('[SmoothWaveHeatmap] Failed to load land GeoJSON from all sources:', err);
+      }
+    };
+
+    loadLandGeoJSON();
   }, []);
+
+  // Helper function to respawn particle in the sea only
+  const respawnInSea = (p: Particle, width: number, height: number, bounds: L.LatLngBounds, maxAttempts = 10) => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      p.x = Math.random() * width;
+      p.y = Math.random() * height;
+      p.age = 0;
+      p.maxAge = PARTICLE_MAX_AGE + Math.random() * 100;
+
+      // Convert to lat/lng and check if in sea
+      const lng = bounds.getWest() + (p.x / width) * (bounds.getEast() - bounds.getWest());
+      const lat = bounds.getNorth() - (p.y / height) * (bounds.getNorth() - bounds.getSouth());
+
+      // Check with SeaMask if available
+      if (seaMaskRef.current?.isReady()) {
+        if (seaMaskRef.current.isInSea(lat, lng)) {
+          return; // Found a valid sea position
+        }
+      } else {
+        return; // If SeaMask not ready, accept any position
+      }
+    }
+    // After max attempts, just use the last position (will be filtered later)
+  };
 
   // Animation Loop
   const animateParticles = () => {
@@ -385,9 +457,9 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
 
     // 3. Update and Draw Particles
     particlesRef.current.forEach(p => {
-      // Kill old particles
+      // Kill old particles - respawn in sea only
       if (p.age > p.maxAge) {
-        p.respawn(width, height);
+        respawnInSea(p, width, height, bounds);
       }
       p.age++;
 
@@ -403,9 +475,17 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
 
       // Check strictly against grid bounds
       if (row >= 0 && row < cache.metadata.rows - 1 && col >= 0 && col < cache.metadata.cols - 1) {
-        // Strict Sea Mask for Particles: If we hit a land cell, respawn immediately
+        // ACCURATE Sea Mask Check using GeoJSON coastline data
+        // First check cached grid mask (fast), then verify with accurate polygon check if needed
         if (!cache.seaMask[row][col]) {
-          p.respawn(width, height);
+          respawnInSea(p, width, height, bounds);
+          return;
+        }
+
+        // Additional accurate check using SeaMask (polygon-based)
+        // This catches particles that slip through grid-based check near coastlines
+        if (seaMaskRef.current?.isReady() && !seaMaskRef.current.isInSea(lat, lng)) {
+          respawnInSea(p, width, height, bounds);
           return;
         }
 
@@ -424,7 +504,7 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
 
         // If wave height is near zero (land/calm), kill particle
         if (value < 0.1) {
-          p.respawn(width, height);
+          respawnInSea(p, width, height, bounds);
           return;
         }
 
@@ -447,13 +527,13 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         p.x += dx;
         p.y += dy;
 
-        // Boundary Check (Screen)
+        // Boundary Check (Screen) - respawn in sea
         if (p.x < 0 || p.x > width || p.y < 0 || p.y > height) {
-          p.respawn(width, height);
+          respawnInSea(p, width, height, bounds);
         }
       } else {
-        // Particle hit land or went out of bounds -> Respawn immediately
-        p.respawn(width, height);
+        // Particle hit land or went out of bounds -> Respawn in sea
+        respawnInSea(p, width, height, bounds);
       }
     });
 

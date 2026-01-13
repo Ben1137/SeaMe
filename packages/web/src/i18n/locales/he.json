@@ -275,7 +275,14 @@
       "swellHeight": "גובה סוול",
       "windWaveHeight": "גובה גלי רוח",
       "significantWaveHeight": "גובה גלים משמעותי"
-    }
+    },
+    "geoJSONLayers": "שכבות מפה",
+    "coastline": "קו החוף",
+    "bathymetry": "בתימטריה",
+    "reefs": "שוניות אלמוגים",
+    "ports": "נמלים",
+    "marineAreas": "אזורים ימיים",
+    "loadingGeoJSON": "טוען נתוני מפה..."
   },
   "units": {
     "meters": "מ׳",

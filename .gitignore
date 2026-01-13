@@ -40,3 +40,5 @@ yarn-error.log*
 # AI Tools
 .gemini
 .claude
+tmpclaude-*
+nul

@@ -276,7 +276,14 @@
       "swellHeight": "Swell Height",
       "windWaveHeight": "Wind Wave Height",
       "significantWaveHeight": "Significant Wave Height"
-    }
+    },
+    "geoJSONLayers": "Map Overlays",
+    "coastline": "Coastline",
+    "bathymetry": "Bathymetry",
+    "reefs": "Coral Reefs",
+    "ports": "Ports",
+    "marineAreas": "Marine Areas",
+    "loadingGeoJSON": "Loading map data..."
   },
   "units": {
     "meters": "m",

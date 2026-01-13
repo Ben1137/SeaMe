@@ -11,6 +11,10 @@ import { WaveHeatmapLayer } from './map/WaveHeatmapLayer';
 import { SmoothWaveHeatmap } from './map/SmoothWaveHeatmap';
 // import { CrispLandMask, CrispLandMaskStyles } from './map/CrispLandMask'; // Removed: SmoothWaveHeatmap now handles land clipping internally
 import { ColorScaleLegend } from './map/ColorScaleLegend';
+import { GeoJSONLayers } from './map/GeoJSONLayers';
+import { BathymetryLayer } from './map/BathymetryLayer';
+import { PortsLayer } from './map/PortsLayer';
+import { ReefLayer } from './map/ReefLayer';
 import { COLOR_SCALES } from '../utils/colorScales';
 import { UNIFIED_PARTICLE_CONFIG, DARK_MAP_CONFIG, LAND_MASK_CONFIG } from '../utils/particleConfig';
 
@@ -109,6 +113,15 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
   const [velocityData, setVelocityData] = useState<L.VelocityData | null>(null);
   const [waveHeatmapData, setWaveHeatmapData] = useState<Array<{lat: number; lng: number; value: number; color: string}>>([]);
   const [loadingAdvancedLayer, setLoadingAdvancedLayer] = useState(false);
+
+  // GeoJSON Overlay Layers State
+  const [geoJSONLayers, setGeoJSONLayers] = useState({
+    coastline: false,
+    bathymetry: false,
+    reefs: false,
+    ports: false,
+    marineAreas: false,
+  });
 
   useEffect(() => {
     if (mapContainer.current && !mapInstance.current) {
@@ -737,6 +750,51 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
                >
                   <Waves size={12} /> Wave Heatmap
                </button>
+
+               {/* Divider for GeoJSON Overlay Layers */}
+               <div className="border-t border-subtle my-2 pt-2">
+                  <div className="text-[10px] text-muted uppercase font-bold mb-1 px-2">{t('map.geoJSONLayers') || 'Map Overlays'}</div>
+               </div>
+
+               {/* Coastline Toggle */}
+               <button
+                 onClick={() => setGeoJSONLayers(prev => ({ ...prev, coastline: !prev.coastline }))}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${geoJSONLayers.coastline ? 'bg-cyan-700 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <MapPin size={12} /> {t('map.coastline') || 'Coastline'}
+               </button>
+
+               {/* Bathymetry Toggle */}
+               <button
+                 onClick={() => setGeoJSONLayers(prev => ({ ...prev, bathymetry: !prev.bathymetry }))}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${geoJSONLayers.bathymetry ? 'bg-blue-700 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Droplets size={12} /> {t('map.bathymetry') || 'Bathymetry'}
+               </button>
+
+               {/* Reefs Toggle */}
+               <button
+                 onClick={() => setGeoJSONLayers(prev => ({ ...prev, reefs: !prev.reefs }))}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${geoJSONLayers.reefs ? 'bg-orange-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Waves size={12} /> {t('map.reefs') || 'Coral Reefs'}
+               </button>
+
+               {/* Ports Toggle */}
+               <button
+                 onClick={() => setGeoJSONLayers(prev => ({ ...prev, ports: !prev.ports }))}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${geoJSONLayers.ports ? 'bg-amber-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Navigation size={12} /> {t('map.ports') || 'Ports'}
+               </button>
+
+               {/* Marine Areas Toggle */}
+               <button
+                 onClick={() => setGeoJSONLayers(prev => ({ ...prev, marineAreas: !prev.marineAreas }))}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${geoJSONLayers.marineAreas ? 'bg-purple-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <MapPin size={12} /> {t('map.marineAreas') || 'Marine Areas'}
+               </button>
             </div>
             {(loadingGrid || loadingAdvancedLayer) && (
                <div className="pb-2 px-2 text-[10px] text-center text-blue-300 animate-pulse">{t('map.updatingForecast')}</div>
@@ -939,6 +997,34 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
                )}
           </div>
       )}
+
+      {/* GeoJSON Overlay Layers */}
+      <GeoJSONLayers
+        map={mapInstance.current}
+        visibleLayers={geoJSONLayers}
+        opacity={0.8}
+      />
+
+      {/* Bathymetry Layer (dedicated component for depth contours) */}
+      <BathymetryLayer
+        map={mapInstance.current}
+        visible={geoJSONLayers.bathymetry}
+        opacity={0.6}
+        depths={[200, 1000, 2000, 3000]}
+      />
+
+      {/* Ports Layer (with clustering) */}
+      <PortsLayer
+        map={mapInstance.current}
+        visible={geoJSONLayers.ports}
+      />
+
+      {/* Reef Layer */}
+      <ReefLayer
+        map={mapInstance.current}
+        visible={geoJSONLayers.reefs}
+        opacity={0.7}
+      />
 
       {/* Advanced Visualization Layers */}
       {advancedLayer === 'WIND_PARTICLES' && (
