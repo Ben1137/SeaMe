@@ -1,6 +1,11 @@
 /**
  * SeaMaskUtils - Utility functions for determining if a point is in the ocean/sea
  * Uses GeoJSON land polygons for accurate coastline-based particle clipping
+ *
+ * Performance optimizations:
+ * - Cached mask rendering using OffscreenCanvas
+ * - Blur filter only applied on final render (not during movement)
+ * - Zoom-level based cache invalidation
  */
 
 // ------------------------------------------------------------------
@@ -131,6 +136,9 @@ export class SeaMask {
     type: 'Polygon' | 'MultiPolygon';
   }> = [];
 
+  // Load state callbacks
+  private onLoadCallbacks: Array<() => void> = [];
+
   constructor(config: SeaMaskConfig = { resolution: '50m' }) {
     this.resolution = config.resolution;
   }
@@ -157,6 +165,7 @@ export class SeaMask {
         console.log(`[SeaMask] Loaded land data from local (${this.resolution})`);
         this._buildSpatialIndex();
         this.isLoaded = true;
+        this._notifyLoadCallbacks();
         return;
       }
     } catch (error) {
@@ -171,11 +180,34 @@ export class SeaMask {
         console.log(`[SeaMask] Loaded land data from remote fallback (${this.resolution})`);
         this._buildSpatialIndex();
         this.isLoaded = true;
+        this._notifyLoadCallbacks();
         return;
       }
     } catch (error) {
       console.error('[SeaMask] Failed to load land data:', error);
     }
+  }
+
+  /**
+   * Register a callback to be notified when data is loaded
+   */
+  onLoad(callback: () => void): void {
+    if (this.isLoaded) {
+      callback();
+    } else {
+      this.onLoadCallbacks.push(callback);
+    }
+  }
+
+  private _notifyLoadCallbacks(): void {
+    for (const callback of this.onLoadCallbacks) {
+      try {
+        callback();
+      } catch (e) {
+        console.error('[SeaMask] onLoad callback error:', e);
+      }
+    }
+    this.onLoadCallbacks = [];
   }
 
   /**
@@ -328,7 +360,7 @@ export async function initializeSeaMask(resolution: '10m' | '50m' | '110m' = '50
 }
 
 // ------------------------------------------------------------------
-// Canvas-based mask rendering utilities
+// Canvas-based mask rendering utilities with CACHING
 // ------------------------------------------------------------------
 
 /**
@@ -337,12 +369,14 @@ export async function initializeSeaMask(resolution: '10m' | '50m' | '110m' = '50
 export interface LandMaskConfig {
   /** Fill color for land areas (default: solid black for clipping) */
   fillStyle?: string;
-  /** Enable soft edges with blur (default: true) */
+  /** Enable soft edges with blur (default: true for final render only) */
   softEdges?: boolean;
   /** Blur radius in pixels for soft edges (default: 1.5) */
   blurRadius?: number;
   /** Handle date-line wrapping for world copies (default: true) */
   handleWrapping?: boolean;
+  /** Skip blur during active movement for performance (default: true) */
+  skipBlurDuringMovement?: boolean;
 }
 
 const DEFAULT_MASK_CONFIG: LandMaskConfig = {
@@ -350,26 +384,347 @@ const DEFAULT_MASK_CONFIG: LandMaskConfig = {
   softEdges: true,
   blurRadius: 1.5,
   handleWrapping: true,
+  skipBlurDuringMovement: true,
 };
 
 /**
+ * Cached Land Mask Renderer
+ *
+ * This class caches the rendered mask at each zoom level to avoid
+ * expensive polygon rendering on every frame. Only redraws when:
+ * - Zoom level changes
+ * - Canvas size changes
+ * - Force invalidate is called
+ *
+ * Performance optimizations:
+ * - Reduced padding (10% instead of 50%) to lower memory usage
+ * - Viewport culling to skip off-screen polygons
+ * - Debounced regeneration to wait for zoom completion
+ * - Simplified rendering (no blur during cache generation)
+ */
+export class CachedLandMaskRenderer {
+  private cacheCanvas: HTMLCanvasElement | null = null;
+  private cachedZoom: number = -1;
+  private cachedWidth: number = 0;
+  private cachedHeight: number = 0;
+  private cachedOrigin: L.Point | null = null;
+  private isMoving: boolean = false;
+  private landFeatures: any = null;
+  private config: LandMaskConfig;
+
+  // Debounce timer for cache regeneration
+  private regenerateTimer: ReturnType<typeof setTimeout> | null = null;
+  private isRegenerating: boolean = false;
+
+  // Pre-computed polygon bounding boxes for viewport culling
+  private polygonBounds: Array<{
+    minLng: number;
+    maxLng: number;
+    minLat: number;
+    maxLat: number;
+    coordinates: [number, number][][];
+  }> = [];
+
+  constructor(config: LandMaskConfig = {}) {
+    this.config = { ...DEFAULT_MASK_CONFIG, ...config };
+  }
+
+  /**
+   * Set land features data and pre-compute bounding boxes
+   */
+  setLandFeatures(features: any): void {
+    this.landFeatures = features;
+    this._precomputeBounds();
+    this.invalidateCache();
+  }
+
+  /**
+   * Pre-compute bounding boxes for all polygons (for viewport culling)
+   */
+  private _precomputeBounds(): void {
+    this.polygonBounds = [];
+    if (!this.landFeatures?.features) return;
+
+    for (const feature of this.landFeatures.features) {
+      if (feature.geometry.type === 'Polygon') {
+        const bounds = this._computePolygonBounds(feature.geometry.coordinates[0]);
+        this.polygonBounds.push({ ...bounds, coordinates: feature.geometry.coordinates });
+      } else if (feature.geometry.type === 'MultiPolygon') {
+        for (const polygon of feature.geometry.coordinates) {
+          const bounds = this._computePolygonBounds(polygon[0]);
+          this.polygonBounds.push({ ...bounds, coordinates: polygon });
+        }
+      }
+    }
+
+    console.log(`[CachedLandMaskRenderer] Pre-computed bounds for ${this.polygonBounds.length} polygons`);
+  }
+
+  /**
+   * Compute bounding box for a polygon ring
+   */
+  private _computePolygonBounds(ring: [number, number][]): {
+    minLng: number;
+    maxLng: number;
+    minLat: number;
+    maxLat: number;
+  } {
+    let minLng = Infinity, maxLng = -Infinity;
+    let minLat = Infinity, maxLat = -Infinity;
+
+    for (const [lng, lat] of ring) {
+      minLng = Math.min(minLng, lng);
+      maxLng = Math.max(maxLng, lng);
+      minLat = Math.min(minLat, lat);
+      maxLat = Math.max(maxLat, lat);
+    }
+
+    return { minLng, maxLng, minLat, maxLat };
+  }
+
+  /**
+   * Mark that we're in active movement (skip blur for performance)
+   */
+  setMoving(moving: boolean): void {
+    this.isMoving = moving;
+  }
+
+  /**
+   * Invalidate the cache to force a full redraw
+   */
+  invalidateCache(): void {
+    this.cachedZoom = -1;
+    this.cachedWidth = 0;
+    this.cachedHeight = 0;
+    this.cachedOrigin = null;
+
+    // Cancel any pending regeneration
+    if (this.regenerateTimer) {
+      clearTimeout(this.regenerateTimer);
+      this.regenerateTimer = null;
+    }
+  }
+
+  /**
+   * Render the land mask to the target canvas
+   * Uses cached rendering when possible for optimal performance
+   */
+  render(
+    targetCanvas: HTMLCanvasElement,
+    map: L.Map,
+    origin: L.Point
+  ): void {
+    if (!this.landFeatures) return;
+
+    const ctx = targetCanvas.getContext('2d');
+    if (!ctx) return;
+
+    const zoom = Math.round(map.getZoom());
+    const width = targetCanvas.width;
+    const height = targetCanvas.height;
+
+    // Check if we need to regenerate the cache
+    const needsRedraw =
+      zoom !== this.cachedZoom ||
+      width !== this.cachedWidth ||
+      height !== this.cachedHeight ||
+      !this.cacheCanvas;
+
+    if (needsRedraw && !this.isRegenerating) {
+      // Debounce regeneration - wait 100ms after last call
+      // This prevents regenerating during rapid zoom animations
+      if (this.regenerateTimer) {
+        clearTimeout(this.regenerateTimer);
+      }
+
+      this.regenerateTimer = setTimeout(() => {
+        this._renderToCache(map, width, height, origin);
+        this.cachedZoom = zoom;
+        this.cachedWidth = width;
+        this.cachedHeight = height;
+        this.regenerateTimer = null;
+      }, 100);
+    }
+
+    // Clear target canvas
+    ctx.clearRect(0, 0, width, height);
+
+    // If we have a cached canvas, just draw it (very fast!)
+    if (this.cacheCanvas && this.cachedOrigin) {
+      // Calculate offset from cached origin to current origin
+      const offsetX = Math.round(origin.x - this.cachedOrigin.x);
+      const offsetY = Math.round(origin.y - this.cachedOrigin.y);
+
+      // Draw the cached mask offset by the pan amount
+      ctx.drawImage(this.cacheCanvas, -offsetX, -offsetY);
+    }
+  }
+
+  /**
+   * Render land polygons to the cache canvas
+   * Uses viewport culling to skip off-screen polygons
+   */
+  private _renderToCache(
+    map: L.Map,
+    width: number,
+    height: number,
+    origin: L.Point
+  ): void {
+    this.isRegenerating = true;
+
+    // REDUCED PADDING: 10% instead of 50% to save memory
+    const padding = Math.min(width, height) * 0.1;
+    const cacheWidth = Math.round(width + padding * 2);
+    const cacheHeight = Math.round(height + padding * 2);
+
+    // Limit max canvas size to prevent memory issues
+    const MAX_CANVAS_SIZE = 2048;
+    const finalWidth = Math.min(cacheWidth, MAX_CANVAS_SIZE);
+    const finalHeight = Math.min(cacheHeight, MAX_CANVAS_SIZE);
+
+    if (!this.cacheCanvas ||
+        this.cacheCanvas.width !== finalWidth ||
+        this.cacheCanvas.height !== finalHeight) {
+      this.cacheCanvas = document.createElement('canvas');
+      this.cacheCanvas.width = finalWidth;
+      this.cacheCanvas.height = finalHeight;
+    }
+
+    const ctx = this.cacheCanvas.getContext('2d');
+    if (!ctx) {
+      this.isRegenerating = false;
+      return;
+    }
+
+    // Adjust origin for padding
+    const actualPaddingX = (finalWidth - width) / 2;
+    const actualPaddingY = (finalHeight - height) / 2;
+    const paddedOrigin = L.point(
+      Math.round(origin.x - actualPaddingX),
+      Math.round(origin.y - actualPaddingY)
+    );
+    this.cachedOrigin = L.point(origin.x - actualPaddingX, origin.y - actualPaddingY);
+
+    // Clear cache canvas
+    ctx.clearRect(0, 0, finalWidth, finalHeight);
+
+    // Set fill style - NO BLUR during cache generation for performance
+    // Blur is too expensive with many polygons
+    ctx.fillStyle = this.config.fillStyle || '#000000';
+
+    // Get viewport bounds for culling
+    const bounds = map.getBounds();
+    const viewMinLng = bounds.getWest() - 10; // Add margin
+    const viewMaxLng = bounds.getEast() + 10;
+    const viewMinLat = bounds.getSouth() - 10;
+    const viewMaxLat = bounds.getNorth() + 10;
+
+    // Calculate world width for wrapping
+    const worldWidth = getWorldWidthInPixels(map);
+
+    // Draw only visible polygons (viewport culling)
+    let drawnCount = 0;
+    for (const poly of this.polygonBounds) {
+      // Quick AABB intersection test - skip polygons completely outside viewport
+      if (poly.maxLng < viewMinLng || poly.minLng > viewMaxLng ||
+          poly.maxLat < viewMinLat || poly.minLat > viewMaxLat) {
+        continue;
+      }
+
+      // Draw this polygon
+      drawPolygonToCanvasSimple(ctx, map, poly.coordinates, paddedOrigin);
+
+      // Handle wrapping if enabled
+      if (this.config.handleWrapping && worldWidth > 0) {
+        const wrappedOriginLeft = L.point(paddedOrigin.x + worldWidth, paddedOrigin.y);
+        const wrappedOriginRight = L.point(paddedOrigin.x - worldWidth, paddedOrigin.y);
+        drawPolygonToCanvasSimple(ctx, map, poly.coordinates, wrappedOriginLeft);
+        drawPolygonToCanvasSimple(ctx, map, poly.coordinates, wrappedOriginRight);
+      }
+
+      drawnCount++;
+    }
+
+    this.isRegenerating = false;
+    console.log(`[CachedLandMaskRenderer] Cache regenerated: ${drawnCount}/${this.polygonBounds.length} polygons at zoom ${Math.round(map.getZoom())}`);
+  }
+
+  /**
+   * Dispose of resources
+   */
+  dispose(): void {
+    if (this.regenerateTimer) {
+      clearTimeout(this.regenerateTimer);
+      this.regenerateTimer = null;
+    }
+    this.cacheCanvas = null;
+    this.landFeatures = null;
+    this.polygonBounds = [];
+  }
+}
+
+/**
+ * Simplified polygon drawing without blur filter
+ * Much faster for bulk rendering
+ */
+function drawPolygonToCanvasSimple(
+  ctx: CanvasRenderingContext2D,
+  map: L.Map,
+  coordinates: [number, number][][],
+  origin: L.Point
+): void {
+  ctx.beginPath();
+
+  // Outer ring
+  const outerRing = coordinates[0];
+  for (let i = 0; i < outerRing.length; i++) {
+    const [lng, lat] = outerRing[i];
+    const layerPoint = map.latLngToLayerPoint([lat, lng]);
+    const x = layerPoint.x - origin.x;
+    const y = layerPoint.y - origin.y;
+
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.closePath();
+
+  // Handle holes
+  for (let h = 1; h < coordinates.length; h++) {
+    const hole = coordinates[h];
+    for (let i = 0; i < hole.length; i++) {
+      const [lng, lat] = hole[i];
+      const layerPoint = map.latLngToLayerPoint([lat, lng]);
+      const x = layerPoint.x - origin.x;
+      const y = layerPoint.y - origin.y;
+
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.closePath();
+  }
+
+  ctx.fill('evenodd');
+}
+
+/**
  * Render land features to a canvas for use as a clipping mask
- * This creates a mask where land areas are filled (to be cut out)
+ * This is the legacy non-cached version, kept for compatibility
  *
- * IMPORTANT: Uses latLngToLayerPoint for consistent projection with other layers.
- * The origin parameter is the top-left corner in layer coordinates.
- *
- * Features:
- * - Anti-aliased soft edges using canvas filter blur
- * - Date-line wrapping support for seamless Pacific crossing
- * - Configurable fill style for transparency effects
+ * For better performance, use CachedLandMaskRenderer instead
  */
 export function renderLandMaskToCanvas(
   canvas: HTMLCanvasElement,
   landFeatures: any,
   map: L.Map,
   origin?: L.Point,
-  config: LandMaskConfig = {}
+  config: LandMaskConfig = {},
+  isMoving: boolean = false
 ): void {
   const ctx = canvas.getContext('2d');
   if (!ctx || !landFeatures) return;
@@ -388,8 +743,12 @@ export function renderLandMaskToCanvas(
   // Calculate world width in pixels for date-line wrapping
   const worldWidth = getWorldWidthInPixels(map);
 
-  // Apply soft edge blur filter before drawing
-  if (mergedConfig.softEdges && mergedConfig.blurRadius) {
+  // Apply soft edge blur filter - but SKIP during active movement for performance
+  const shouldBlur = mergedConfig.softEdges &&
+                     mergedConfig.blurRadius &&
+                     (!isMoving || !mergedConfig.skipBlurDuringMovement);
+
+  if (shouldBlur) {
     ctx.filter = `blur(${mergedConfig.blurRadius}px)`;
   }
 

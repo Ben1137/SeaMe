@@ -1,7 +1,7 @@
 import L from 'leaflet';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import chroma from 'chroma-js';
-import { SeaMask, renderLandMaskToCanvas, LandMaskConfig } from './SeaMaskUtils';
+import { SeaMask, renderLandMaskToCanvas, LandMaskConfig, CachedLandMaskRenderer } from './SeaMaskUtils';
 
 // ------------------------------------------------------------------
 // Types & Interfaces
@@ -153,7 +153,7 @@ function createGrid(data: WaveGridPoint[]): GridCache | null {
 }
 
 // ------------------------------------------------------------------
-// Canvas Rendering (Land Mask) - Uses shared utility from SeaMaskUtils
+// Canvas Rendering (Land Mask) - Uses cached renderer for performance
 // ------------------------------------------------------------------
 
 // Configuration for wave heatmap land mask (used for destination-out clipping)
@@ -162,6 +162,7 @@ const WAVE_MASK_CONFIG: LandMaskConfig = {
   softEdges: true,
   blurRadius: 1.5,
   handleWrapping: true,
+  skipBlurDuringMovement: true, // Performance optimization
 };
 
 // ------------------------------------------------------------------
@@ -289,14 +290,28 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
   // SeaMask for accurate point-in-sea checking
   const seaMaskRef = useRef<SeaMask | null>(null);
 
+  // Cached mask renderer for performance
+  const cachedRendererRef = useRef<CachedLandMaskRenderer | null>(null);
+
   // Track origin for proper positioning
   const originRef = useRef<L.Point | null>(null);
+
+  // Track if we're actively moving (for performance optimization)
+  const isMovingRef = useRef<boolean>(false);
+
+  // Track if initial render is complete
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Force update trigger
+  const [forceUpdateTrigger, setForceUpdateTrigger] = useState(0);
 
   // Initialize Grid Data
   useEffect(() => {
     if (gridData && gridData.length > 0) {
       gridCache.current = createGrid(gridData);
       console.log('[SmoothWaveHeatmap] Grid cache updated with direction');
+      // Trigger force update when grid data changes
+      setForceUpdateTrigger(prev => prev + 1);
     }
   }, [gridData]);
 
@@ -305,6 +320,13 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
     const loadLandGeoJSON = async () => {
       // Initialize SeaMask for accurate point-in-sea checking (use 50m for good balance)
       const seaMask = new SeaMask({ resolution: '50m' });
+
+      // Register callback for when data loads - this triggers a force redraw
+      seaMask.onLoad(() => {
+        console.log('[SmoothWaveHeatmap] SeaMask loaded, triggering force redraw');
+        setForceUpdateTrigger(prev => prev + 1);
+      });
+
       await seaMask.load();
       seaMaskRef.current = seaMask;
 
@@ -312,7 +334,15 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
       const features = seaMask.getLandFeatures();
       if (features) {
         setLandFeatures(features);
+
+        // Initialize cached renderer with land features
+        if (!cachedRendererRef.current) {
+          cachedRendererRef.current = new CachedLandMaskRenderer(WAVE_MASK_CONFIG);
+        }
+        cachedRendererRef.current.setLandFeatures(features);
+
         console.log('[SmoothWaveHeatmap] Land GeoJSON loaded via SeaMask (50m resolution)');
+        setIsInitialized(true);
         return;
       }
 
@@ -320,10 +350,18 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
     };
 
     loadLandGeoJSON();
+
+    return () => {
+      // Cleanup cached renderer
+      if (cachedRendererRef.current) {
+        cachedRendererRef.current.dispose();
+        cachedRendererRef.current = null;
+      }
+    };
   }, []);
 
   // Helper function to respawn particle in the sea only
-  const respawnInSea = (p: Particle, width: number, height: number, bounds: L.LatLngBounds, maxAttempts = 10) => {
+  const respawnInSea = useCallback((p: Particle, width: number, height: number, bounds: L.LatLngBounds, maxAttempts = 10) => {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       p.x = Math.random() * width;
       p.y = Math.random() * height;
@@ -344,10 +382,10 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
       }
     }
     // After max attempts, just use the last position (will be filtered later)
-  };
+  }, []);
 
-  // Animation Loop
-  const animateParticles = () => {
+  // Animation Loop with proper requestAnimationFrame throttling
+  const animateParticles = useCallback(() => {
     // Safety check for cleanup
     if (!particleCanvasRef.current) return;
 
@@ -468,7 +506,7 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
     }
 
     animationFrameRef.current = requestAnimationFrame(animateParticles);
-  };
+  }, [map, visible, respawnInSea]);
 
   // Custom Layer Implementation
   useEffect(() => {
@@ -541,8 +579,11 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         L.DomUtil.setPosition(canvas, topLeft);
         L.DomUtil.setPosition(particleCanvas, topLeft);
 
-        // Initial Draw
-        this._update();
+        // Initial Draw - only if data is ready
+        // Use setTimeout to ensure React state is settled
+        setTimeout(() => {
+          this._update();
+        }, 0);
 
         // Start Animation Loop
         cancelAnimationFrame(animationFrameRef.current);
@@ -551,8 +592,9 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         // Event Listeners - optimized for smooth pan/zoom
         map.on('movestart', this._onMoveStart, this);
         map.on('move', this._onMove, this);
-        map.on('moveend', this._update, this);
-        map.on('zoomend', this._update, this);
+        map.on('moveend', this._onMoveEnd, this);
+        map.on('zoomstart', this._onZoomStart, this);
+        map.on('zoomend', this._onZoomEnd, this);
         map.on('resize', this._resize, this);
       },
 
@@ -571,12 +613,19 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
 
         map.off('movestart', this._onMoveStart, this);
         map.off('move', this._onMove, this);
-        map.off('moveend', this._update, this);
-        map.off('zoomend', this._update, this);
+        map.off('moveend', this._onMoveEnd, this);
+        map.off('zoomstart', this._onZoomStart, this);
+        map.off('zoomend', this._onZoomEnd, this);
         map.off('resize', this._resize, this);
       },
 
       _onMoveStart: function() {
+        // Mark as moving for performance optimization
+        isMovingRef.current = true;
+        if (cachedRendererRef.current) {
+          cachedRendererRef.current.setMoving(true);
+        }
+
         // Store the starting origin for smooth CSS transforms during pan
         if (originRef.current) {
           this._startOrigin = originRef.current;
@@ -593,6 +642,38 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         // Move canvases using Leaflet's positioning (uses CSS transforms internally)
         L.DomUtil.setPosition(this._canvas, currentTopLeft);
         L.DomUtil.setPosition(this._particleCanvas, currentTopLeft);
+      },
+
+      _onMoveEnd: function() {
+        // Mark movement complete
+        isMovingRef.current = false;
+        if (cachedRendererRef.current) {
+          cachedRendererRef.current.setMoving(false);
+        }
+
+        // Full redraw with blur
+        this._update();
+      },
+
+      _onZoomStart: function() {
+        // Mark as moving for performance optimization
+        isMovingRef.current = true;
+        if (cachedRendererRef.current) {
+          cachedRendererRef.current.setMoving(true);
+        }
+      },
+
+      _onZoomEnd: function() {
+        // Mark movement complete
+        isMovingRef.current = false;
+        if (cachedRendererRef.current) {
+          cachedRendererRef.current.setMoving(false);
+          // Invalidate cache on zoom change (projection changed)
+          cachedRendererRef.current.invalidateCache();
+        }
+
+        // Full redraw
+        this._update();
       },
 
       _resize: function() {
@@ -617,11 +698,25 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
           this._maskCanvas.width = size.x;
           this._maskCanvas.height = size.y;
         }
+
+        // Invalidate cache on resize
+        if (cachedRendererRef.current) {
+          cachedRendererRef.current.invalidateCache();
+        }
+
         this._update();
       },
 
       _update: function() {
-        if (!this._canvas || !gridCache.current) return;
+        // Check if we have the required data
+        if (!this._canvas) return;
+
+        // IMPORTANT: Check gridCache.current exists before rendering
+        // This fixes the "ghost arrows" bug where particles appear before heatmap
+        if (!gridCache.current) {
+          console.log('[SmoothWaveHeatmap] Waiting for grid data...');
+          return;
+        }
 
         const bounds = map.getBounds();
         // Use Math.round to avoid sub-pixel jitter
@@ -633,9 +728,22 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         L.DomUtil.setPosition(this._canvas, topLeft);
         L.DomUtil.setPosition(this._particleCanvas, topLeft);
 
-        // Render land mask if available - using shared utility with all improvements
+        // Render land mask if available - use cached renderer for performance
         if (this._maskCanvas && landFeatures) {
-          renderLandMaskToCanvas(this._maskCanvas, landFeatures, map, topLeft, WAVE_MASK_CONFIG);
+          if (cachedRendererRef.current) {
+            // Use cached renderer (fast - just draws from cache)
+            cachedRendererRef.current.render(this._maskCanvas, map, topLeft);
+          } else {
+            // Fallback to direct rendering
+            renderLandMaskToCanvas(
+              this._maskCanvas,
+              landFeatures,
+              map,
+              topLeft,
+              WAVE_MASK_CONFIG,
+              isMovingRef.current
+            );
+          }
         }
 
         // Render Static Heatmap with land mask clipping
@@ -644,6 +752,8 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         // Clear particles on move to prevent "streaking" artifacts during pan
         const pCtx = this._particleCanvas.getContext('2d');
         if (pCtx) pCtx.clearRect(0, 0, this._particleCanvas.width, this._particleCanvas.height);
+
+        console.log('[SmoothWaveHeatmap] Render complete');
       }
     });
 
@@ -661,7 +771,19 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         map.removeLayer(layerRef.current);
       }
     };
-  }, [map, visible, opacity, landFeatures]); // Include landFeatures dependency
+  }, [map, visible, opacity, landFeatures, animateParticles]);
+
+  // Force redraw when data becomes available or changes
+  useEffect(() => {
+    if (forceUpdateTrigger > 0 && layerRef.current && map) {
+      // Trigger a manual update
+      const layer = layerRef.current as any;
+      if (layer._update) {
+        console.log('[SmoothWaveHeatmap] Force redraw triggered');
+        layer._update();
+      }
+    }
+  }, [forceUpdateTrigger, map]);
 
   return null;
 };
