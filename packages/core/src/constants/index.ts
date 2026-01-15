@@ -5,11 +5,54 @@
  */
 
 // ==================== API ENDPOINTS ====================
+// Environment detection for API URL switching
+// - Development (localhost): Use Vite proxy to avoid CORS issues
+// - Production (GitHub Pages, etc.): Use direct API URLs (CORS typically allowed for deployed sites)
+
+/**
+ * Check if running in development mode (localhost)
+ * This function is evaluated at runtime, not compile time
+ */
+function isDevEnvironment(): boolean {
+  // Server-side rendering or test environment - use production URLs
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const hostname = window.location.hostname;
+
+  // Development environments
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return true;
+  }
+
+  // Local network IP addresses (for mobile testing)
+  if (/^192\.168\.\d+\.\d+$/.test(hostname) || /^10\.\d+\.\d+\.\d+$/.test(hostname)) {
+    return true;
+  }
+
+  // Production: GitHub Pages, Vercel, Netlify, or any other deployed domain
+  return false;
+}
+
+/**
+ * Get the appropriate API base URL based on environment
+ * Uses proxy in dev to avoid CORS, direct URLs in production
+ */
+function getApiUrl(devProxy: string, prodUrl: string): string {
+  return isDevEnvironment() ? devProxy : prodUrl;
+}
+
 export const API_ENDPOINTS = {
-  MARINE: 'https://marine-api.open-meteo.com/v1/marine',
-  FORECAST: 'https://api.open-meteo.com/v1/forecast',
-  GEOCODING: 'https://geocoding-api.open-meteo.com/v1/search',
-  REVERSE_GEOCODING: 'https://geocoding-api.open-meteo.com/v1/reverse',
+  // Marine weather API
+  MARINE: getApiUrl('/api/marine/v1/marine', 'https://marine-api.open-meteo.com/v1/marine'),
+  // General weather forecast API
+  FORECAST: getApiUrl('/api/weather/v1/forecast', 'https://api.open-meteo.com/v1/forecast'),
+  // Location search (forward geocoding)
+  GEOCODING: getApiUrl('/api/geocoding/v1/search', 'https://geocoding-api.open-meteo.com/v1/search'),
+  // Reverse geocoding (coordinates to location name)
+  REVERSE_GEOCODING: getApiUrl('/api/geocoding/v1/reverse', 'https://geocoding-api.open-meteo.com/v1/reverse'),
+  // These APIs don't have CORS issues - use direct URLs always
   OVERPASS: 'https://overpass-api.de/api/interpreter',
   NOMINATIM: 'https://nominatim.openstreetmap.org/search',
 } as const;

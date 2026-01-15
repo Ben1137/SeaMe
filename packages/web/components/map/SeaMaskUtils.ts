@@ -401,6 +401,7 @@ const DEFAULT_MASK_CONFIG: LandMaskConfig = {
  * - Viewport culling to skip off-screen polygons
  * - Debounced regeneration to wait for zoom completion
  * - Simplified rendering (no blur during cache generation)
+ * - CHUNKED RENDERING: Draws polygons in batches to avoid blocking main thread
  */
 export class CachedLandMaskRenderer {
   private cacheCanvas: HTMLCanvasElement | null = null;
@@ -415,6 +416,10 @@ export class CachedLandMaskRenderer {
   // Debounce timer for cache regeneration
   private regenerateTimer: ReturnType<typeof setTimeout> | null = null;
   private isRegenerating: boolean = false;
+
+  // Chunked rendering state
+  private chunkRenderAbort: boolean = false;
+  private currentChunkIndex: number = 0;
 
   // Pre-computed polygon bounding boxes for viewport culling
   private polygonBounds: Array<{
@@ -503,6 +508,10 @@ export class CachedLandMaskRenderer {
       clearTimeout(this.regenerateTimer);
       this.regenerateTimer = null;
     }
+
+    // Abort any in-progress chunked rendering
+    this.chunkRenderAbort = true;
+    this.currentChunkIndex = 0;
   }
 
   /**
@@ -561,8 +570,9 @@ export class CachedLandMaskRenderer {
   }
 
   /**
-   * Render land polygons to the cache canvas
-   * Uses viewport culling to skip off-screen polygons
+   * Render land polygons to the cache canvas using CHUNKED RENDERING
+   * This prevents main thread blocking by processing polygons in batches
+   * and yielding to the browser between chunks using requestAnimationFrame
    */
   private _renderToCache(
     map: L.Map,
@@ -571,6 +581,7 @@ export class CachedLandMaskRenderer {
     origin: L.Point
   ): void {
     this.isRegenerating = true;
+    this.chunkRenderAbort = false;
 
     // REDUCED PADDING: 10% instead of 50% to save memory
     const padding = Math.min(width, height) * 0.1;
@@ -609,7 +620,6 @@ export class CachedLandMaskRenderer {
     ctx.clearRect(0, 0, finalWidth, finalHeight);
 
     // Set fill style - NO BLUR during cache generation for performance
-    // Blur is too expensive with many polygons
     ctx.fillStyle = this.config.fillStyle || '#000000';
 
     // Get viewport bounds for culling
@@ -622,37 +632,71 @@ export class CachedLandMaskRenderer {
     // Calculate world width for wrapping
     const worldWidth = getWorldWidthInPixels(map);
 
-    // Draw only visible polygons (viewport culling)
+    // Filter visible polygons first (viewport culling)
+    const visiblePolygons = this.polygonBounds.filter(poly =>
+      !(poly.maxLng < viewMinLng || poly.minLng > viewMaxLng ||
+        poly.maxLat < viewMinLat || poly.minLat > viewMaxLat)
+    );
+
+    // CHUNKED RENDERING: Process 25 polygons per frame to avoid blocking
+    const CHUNK_SIZE = 25;
     let drawnCount = 0;
-    for (const poly of this.polygonBounds) {
-      // Quick AABB intersection test - skip polygons completely outside viewport
-      if (poly.maxLng < viewMinLng || poly.minLng > viewMaxLng ||
-          poly.maxLat < viewMinLat || poly.minLat > viewMaxLat) {
-        continue;
+
+    const renderChunk = (startIndex: number) => {
+      // Check if rendering was aborted (e.g., zoom changed)
+      if (this.chunkRenderAbort) {
+        this.isRegenerating = false;
+        return;
       }
 
-      // Draw this polygon
-      drawPolygonToCanvasSimple(ctx, map, poly.coordinates, paddedOrigin);
+      const endIndex = Math.min(startIndex + CHUNK_SIZE, visiblePolygons.length);
 
-      // Handle wrapping if enabled
-      if (this.config.handleWrapping && worldWidth > 0) {
-        const wrappedOriginLeft = L.point(paddedOrigin.x + worldWidth, paddedOrigin.y);
-        const wrappedOriginRight = L.point(paddedOrigin.x - worldWidth, paddedOrigin.y);
-        drawPolygonToCanvasSimple(ctx, map, poly.coordinates, wrappedOriginLeft);
-        drawPolygonToCanvasSimple(ctx, map, poly.coordinates, wrappedOriginRight);
+      // Draw this chunk of polygons
+      for (let i = startIndex; i < endIndex; i++) {
+        const poly = visiblePolygons[i];
+
+        // Draw this polygon
+        drawPolygonToCanvasSimple(ctx, map, poly.coordinates, paddedOrigin);
+
+        // Handle wrapping if enabled
+        if (this.config.handleWrapping && worldWidth > 0) {
+          const wrappedOriginLeft = L.point(paddedOrigin.x + worldWidth, paddedOrigin.y);
+          const wrappedOriginRight = L.point(paddedOrigin.x - worldWidth, paddedOrigin.y);
+          drawPolygonToCanvasSimple(ctx, map, poly.coordinates, wrappedOriginLeft);
+          drawPolygonToCanvasSimple(ctx, map, poly.coordinates, wrappedOriginRight);
+        }
+
+        drawnCount++;
       }
 
-      drawnCount++;
+      // If more polygons to process, schedule next chunk
+      if (endIndex < visiblePolygons.length) {
+        // Use requestAnimationFrame to yield to the browser
+        // This prevents "Page Unresponsive" warnings
+        requestAnimationFrame(() => renderChunk(endIndex));
+      } else {
+        // Rendering complete
+        this.isRegenerating = false;
+        console.log(`[CachedLandMaskRenderer] Cache regenerated: ${drawnCount}/${this.polygonBounds.length} polygons at zoom ${Math.round(map.getZoom())}`);
+      }
+    };
+
+    // Start chunked rendering
+    if (visiblePolygons.length > 0) {
+      renderChunk(0);
+    } else {
+      this.isRegenerating = false;
+      console.log(`[CachedLandMaskRenderer] No visible polygons at zoom ${Math.round(map.getZoom())}`);
     }
-
-    this.isRegenerating = false;
-    console.log(`[CachedLandMaskRenderer] Cache regenerated: ${drawnCount}/${this.polygonBounds.length} polygons at zoom ${Math.round(map.getZoom())}`);
   }
 
   /**
    * Dispose of resources
    */
   dispose(): void {
+    // Abort any in-progress chunked rendering
+    this.chunkRenderAbort = true;
+
     if (this.regenerateTimer) {
       clearTimeout(this.regenerateTimer);
       this.regenerateTimer = null;
@@ -660,6 +704,7 @@ export class CachedLandMaskRenderer {
     this.cacheCanvas = null;
     this.landFeatures = null;
     this.polygonBounds = [];
+    this.isRegenerating = false;
   }
 }
 

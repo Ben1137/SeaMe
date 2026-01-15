@@ -237,9 +237,12 @@ function renderHeatmapToCanvas(
   ctx.putImageData(imageData, 0, 0);
 
   // Apply land mask to clip out wave pixels on land
+  // IMPORTANT: Scale the mask to match the heatmap canvas size (which may be DPR-scaled)
   if (maskCanvas) {
     ctx.globalCompositeOperation = 'destination-out';
-    ctx.drawImage(maskCanvas, 0, 0);
+    // Draw mask scaled to fill the entire heatmap canvas
+    // This handles the case where heatmap is DPR-scaled but mask is at logical size
+    ctx.drawImage(maskCanvas, 0, 0, width, height);
     ctx.globalCompositeOperation = 'source-over';
   }
 }
@@ -602,6 +605,16 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         // Stop animation FIRST to prevent "undefined context" errors
         cancelAnimationFrame(animationFrameRef.current);
 
+        // Clear any pending debounce timers
+        if (this._zoomDebounceTimer) {
+          clearTimeout(this._zoomDebounceTimer);
+          this._zoomDebounceTimer = null;
+        }
+        if (this._moveDebounceTimer) {
+          clearTimeout(this._moveDebounceTimer);
+          this._moveDebounceTimer = null;
+        }
+
         if (this._canvas) L.DomUtil.remove(this._canvas);
         if (this._particleCanvas) L.DomUtil.remove(this._particleCanvas);
         // Mask canvas is not in DOM, no need to remove
@@ -651,8 +664,14 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
           cachedRendererRef.current.setMoving(false);
         }
 
-        // Full redraw with blur
-        this._update();
+        // DEBOUNCED redraw to prevent freeze during rapid panning
+        if (this._moveDebounceTimer) {
+          clearTimeout(this._moveDebounceTimer);
+        }
+        this._moveDebounceTimer = setTimeout(() => {
+          this._update();
+          this._moveDebounceTimer = null;
+        }, 100); // Wait 100ms after pan ends
       },
 
       _onZoomStart: function() {
@@ -672,8 +691,15 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
           cachedRendererRef.current.invalidateCache();
         }
 
-        // Full redraw
-        this._update();
+        // DEBOUNCED redraw to prevent freeze during rapid zoom animations
+        // Wait for zoom animation to complete before expensive heatmap render
+        if (this._zoomDebounceTimer) {
+          clearTimeout(this._zoomDebounceTimer);
+        }
+        this._zoomDebounceTimer = setTimeout(() => {
+          this._update();
+          this._zoomDebounceTimer = null;
+        }, 150); // Wait 150ms after last zoom event
       },
 
       _resize: function() {

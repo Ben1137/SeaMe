@@ -8,7 +8,28 @@ export default defineConfig({
     fs: {
       // Allow serving files from the workspace root (for monorepo packages)
       allow: ['../..']
-    }
+    },
+    // Proxy configuration to fix CORS issues with Open-Meteo APIs during development
+    proxy: {
+      '/api/geocoding': {
+        target: 'https://geocoding-api.open-meteo.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/geocoding/, ''),
+        secure: true,
+      },
+      '/api/marine': {
+        target: 'https://marine-api.open-meteo.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/marine/, ''),
+        secure: true,
+      },
+      '/api/weather': {
+        target: 'https://api.open-meteo.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/weather/, ''),
+        secure: true,
+      },
+    },
   },
   plugins: [
     react(),

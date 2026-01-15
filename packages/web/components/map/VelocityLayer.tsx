@@ -41,6 +41,10 @@ declare module 'leaflet' {
         lo1: number;
         lo2: number;
         refTime?: string;
+        forecastTime?: number;
+        gridDefinitionTemplate?: number;
+        scanMode?: number;
+        parameterNumberName?: string;
       };
       data: number[];
     };
@@ -57,6 +61,10 @@ declare module 'leaflet' {
         lo1: number;
         lo2: number;
         refTime?: string;
+        forecastTime?: number;
+        gridDefinitionTemplate?: number;
+        scanMode?: number;
+        parameterNumberName?: string;
       };
       data: number[];
     };
@@ -145,6 +153,13 @@ export interface VelocityLayerProps {
    * @default 2
    */
   lineWidth?: number;
+
+  /**
+   * Callback fired after each animation frame renders
+   * Use this for continuous post-processing like land masking
+   * @param canvas The velocity layer's canvas element
+   */
+  onFrame?: (canvas: HTMLCanvasElement) => void;
 }
 
 /**
@@ -186,9 +201,17 @@ export function VelocityLayer({
   colorScale,
   frameRate = 15,
   lineWidth = 2,
+  onFrame,
 }: VelocityLayerProps) {
   const velocityLayerRef = useRef<L.VelocityLayer | null>(null);
   const isCleaningUpRef = useRef(false);
+  // Store onFrame in a ref so patched methods can access the latest callback
+  const onFrameRef = useRef<((canvas: HTMLCanvasElement) => void) | undefined>(onFrame);
+
+  // Keep onFrame ref updated
+  useEffect(() => {
+    onFrameRef.current = onFrame;
+  }, [onFrame]);
 
   useEffect(() => {
     console.log('[VelocityLayer] useEffect triggered');
@@ -399,7 +422,7 @@ export function VelocityLayer({
         };
       }
 
-      // Patch animation frame method
+      // Patch animation frame method - call onFrame callback after each render
       const originalOnAnimationFrame = (layer as any)._onAnimationFrame;
       if (originalOnAnimationFrame) {
         (layer as any)._onAnimationFrame = function(this: any) {
@@ -408,27 +431,46 @@ export function VelocityLayer({
           }
           try {
             originalOnAnimationFrame.call(this);
+
+            // Call onFrame callback for post-processing (e.g., land masking)
+            // This fires AFTER each animation frame renders
+            if (onFrameRef.current && this._canvas) {
+              try {
+                onFrameRef.current(this._canvas);
+              } catch (e) {
+                // Silently ignore callback errors
+              }
+            }
           } catch (error) {
             // Silently ignore
           }
         };
       }
 
-      // Patch clear method
+      // Patch clear method with comprehensive guards
       const originalClear = (layer as any)._clear;
       if (originalClear) {
         (layer as any)._clear = function(this: any) {
+          // Guard: Check if cleaning up or canvas is invalid
+          if (isCleaningUpRef.current) return;
+
           const canvas = this._canvas;
           if (!canvas || !canvas.getContext) {
             return;
           }
+
+          // Guard: Ensure canvas has valid dimensions before clearing
+          if (!canvas.width || !canvas.height) {
+            return;
+          }
+
           try {
             const ctx = canvas.getContext('2d');
             if (ctx) {
               ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
           } catch (error) {
-            // Silently ignore
+            // Silently ignore clearRect errors during transitions
           }
         };
       }
@@ -437,11 +479,92 @@ export function VelocityLayer({
       const originalRedraw = (layer as any)._redraw;
       if (originalRedraw) {
         (layer as any)._redraw = function(this: any) {
+          // CRITICAL: Check for context existence before calling _clear
           if (!this._canvas || !this._map || isCleaningUpRef.current) {
+            return;
+          }
+          // Additional guard: ensure canvas context exists
+          const ctx = this._canvas?.getContext?.('2d');
+          if (!ctx) {
             return;
           }
           try {
             originalRedraw.call(this);
+          } catch (error) {
+            // Silently ignore clearRect and other errors during cleanup
+          }
+        };
+      }
+
+      // Patch onRemove to clean up safely
+      const originalOnRemove = (layer as any).onRemove;
+      if (originalOnRemove) {
+        (layer as any).onRemove = function(this: any, map: L.Map) {
+          // STEP 1: Set cleanup flag to mute our patched methods (_redraw, _update, _clear)
+          // This prevents OUR code from running, but still lets the library clean up
+          isCleaningUpRef.current = true;
+          console.log('[VelocityLayer] onRemove triggered - cleanup flag set');
+
+          // STEP 2: Stop animations manually (but don't null refs yet!)
+          if (this._windy) {
+            try {
+              this._windy.stop?.();
+            } catch (e) { /* ignore */ }
+          }
+          if (this._animationFrame) {
+            try {
+              cancelAnimationFrame(this._animationFrame);
+              this._animationFrame = null;
+            } catch (e) { /* ignore */ }
+          }
+
+          // STEP 3: Let the library clean itself up FIRST
+          // The library needs this._map to call getBounds() and finish its cleanup
+          try {
+            originalOnRemove.call(this, map);
+          } catch (error) {
+            // Silently ignore - library cleanup may partially fail
+            console.log('[VelocityLayer] originalOnRemove error (ignored):', error);
+          }
+
+          // STEP 4: NOW null out refs AFTER library has finished cleanup
+          const canvas = this._canvas;
+          this._canvas = null;
+          this._map = null;
+
+          // STEP 5: Clean up canvas from DOM if it still exists
+          if (canvas?.parentNode) {
+            try {
+              canvas.parentNode.removeChild(canvas);
+            } catch (e) { /* ignore */ }
+          }
+        };
+      }
+
+      // Patch _update method to prevent operations during cleanup
+      const originalUpdate = (layer as any)._update;
+      if (originalUpdate) {
+        (layer as any)._update = function(this: any) {
+          if (isCleaningUpRef.current || !this._map || !this._canvas) {
+            return;
+          }
+          try {
+            originalUpdate.call(this);
+          } catch (error) {
+            // Silently ignore
+          }
+        };
+      }
+
+      // Patch _reset method (called during map events)
+      const originalReset = (layer as any)._reset;
+      if (originalReset) {
+        (layer as any)._reset = function(this: any) {
+          if (isCleaningUpRef.current || !this._map || !this._canvas) {
+            return;
+          }
+          try {
+            originalReset.call(this);
           } catch (error) {
             // Silently ignore
           }
@@ -518,9 +641,10 @@ export function VelocityLayer({
 
     // Cleanup function - must properly stop and remove the layer
     return () => {
-      console.log('[VelocityLayer] Cleanup running...');
+      console.log('[VelocityLayer] React cleanup running...');
 
-      // Set cleanup flag FIRST to prevent any operations during cleanup
+      // Set cleanup flag (may already be true if onRemove was called first)
+      // This ensures all operations are muted regardless of cleanup order
       isCleaningUpRef.current = true;
 
       if (velocityLayerRef.current) {

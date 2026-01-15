@@ -6,7 +6,7 @@ import { Trash2, Navigation, MapPin, Wind, Layers, Waves, X, Clock, Activity, Dr
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { useTranslation } from 'react-i18next';
-import { VelocityLayer } from './map/VelocityLayer';
+import { MaskedVelocityLayer } from './map/MaskedVelocityLayer';
 import { WaveHeatmapLayer } from './map/WaveHeatmapLayer';
 import { SmoothWaveHeatmap } from './map/SmoothWaveHeatmap';
 // import { CrispLandMask, CrispLandMaskStyles } from './map/CrispLandMask'; // Removed: SmoothWaveHeatmap now handles land clipping internally
@@ -1026,9 +1026,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
         opacity={0.7}
       />
 
-      {/* Advanced Visualization Layers */}
+      {/* Advanced Visualization Layers - Using MaskedVelocityLayer for sea-only rendering */}
       {advancedLayer === 'WIND_PARTICLES' && (
-        <VelocityLayer
+        <MaskedVelocityLayer
           data={velocityData}
           type="wind"
           visible={true}
@@ -1039,11 +1039,14 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
           lineWidth={UNIFIED_PARTICLE_CONFIG.lineWidth}
           frameRate={UNIFIED_PARTICLE_CONFIG.frameRate}
           opacity={UNIFIED_PARTICLE_CONFIG.opacity}
+          enableLandMask={true}
+          maskResolution="50m"
+          maskOpacity={0.9}
         />
       )}
 
       {advancedLayer === 'CURRENT_PARTICLES' && (
-        <VelocityLayer
+        <MaskedVelocityLayer
           data={velocityData}
           type="currents"
           visible={true}
@@ -1054,6 +1057,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
           lineWidth={UNIFIED_PARTICLE_CONFIG.lineWidth}
           frameRate={UNIFIED_PARTICLE_CONFIG.frameRate}
           opacity={UNIFIED_PARTICLE_CONFIG.opacity}
+          enableLandMask={true}
+          maskResolution="50m"
+          maskOpacity={0.9}
         />
       )}
 

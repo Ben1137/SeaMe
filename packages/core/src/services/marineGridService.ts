@@ -114,6 +114,20 @@ export interface VelocityData {
     refTime?: string;
     /** Forecast time offset in hours */
     forecastTime?: number;
+    /**
+     * Grid definition template (GRIB2 Section 3)
+     * Must be 0 for latitude-longitude grids (only supported type)
+     * @see https://github.com/onaci/leaflet-velocity
+     */
+    gridDefinitionTemplate?: number;
+    /**
+     * Scan mode - 8-bit mask controlling grid direction
+     * Bit 7 (128): 0 = points scan +i (+x) direction (west to east)
+     * Bit 6 (64):  0 = points scan -j (-y) direction (north to south)
+     * Default: 0 (scan west→east, north→south) which matches our data ordering
+     * @see https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table3-4.shtml
+     */
+    scanMode?: number;
   };
   /** Flattened grid data array [row-major order from NW corner] */
   data: number[];
@@ -411,7 +425,10 @@ export function convertToVelocityFormat(
     dy,
     parameterNumberName: componentName,
     refTime: new Date().toISOString(), // Reference time for leaflet-velocity
-    forecastTime: 0 // Forecast offset in hours
+    forecastTime: 0, // Forecast offset in hours
+    // Best practice fields for leaflet-velocity compatibility:
+    gridDefinitionTemplate: 0, // 0 = latitude-longitude grid (only supported type)
+    scanMode: 0, // 0 = scan west→east (bit 7=0), north→south (bit 6=0)
   });
 
   // Create velocity data in leaflet-velocity array format [U, V]
