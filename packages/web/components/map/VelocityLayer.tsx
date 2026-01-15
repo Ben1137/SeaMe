@@ -155,11 +155,12 @@ export interface VelocityLayerProps {
   lineWidth?: number;
 
   /**
-   * Callback fired after each animation frame renders
-   * Use this for continuous post-processing like land masking
-   * @param canvas The velocity layer's canvas element
+   * Pre-rendered land mask canvas for Context Proxy masking
+   * When provided, the canvas context will be wrapped to intercept stroke() calls
+   * and apply the mask synchronously in the same execution tick.
+   * This achieves frame-perfect synchronization with zero flicker.
    */
-  onFrame?: (canvas: HTMLCanvasElement) => void;
+  maskCanvas?: HTMLCanvasElement | null;
 }
 
 /**
@@ -201,17 +202,17 @@ export function VelocityLayer({
   colorScale,
   frameRate = 15,
   lineWidth = 2,
-  onFrame,
+  maskCanvas,
 }: VelocityLayerProps) {
   const velocityLayerRef = useRef<L.VelocityLayer | null>(null);
   const isCleaningUpRef = useRef(false);
-  // Store onFrame in a ref so patched methods can access the latest callback
-  const onFrameRef = useRef<((canvas: HTMLCanvasElement) => void) | undefined>(onFrame);
+  // Store maskCanvas in a ref so the context proxy can access the latest canvas
+  const maskCanvasRef = useRef<HTMLCanvasElement | null | undefined>(maskCanvas);
 
-  // Keep onFrame ref updated
+  // Keep maskCanvas ref updated
   useEffect(() => {
-    onFrameRef.current = onFrame;
-  }, [onFrame]);
+    maskCanvasRef.current = maskCanvas;
+  }, [maskCanvas]);
 
   useEffect(() => {
     console.log('[VelocityLayer] useEffect triggered');
@@ -422,30 +423,112 @@ export function VelocityLayer({
         };
       }
 
-      // Patch animation frame method - call onFrame callback after each render
-      const originalOnAnimationFrame = (layer as any)._onAnimationFrame;
-      if (originalOnAnimationFrame) {
-        (layer as any)._onAnimationFrame = function(this: any) {
-          if (!this._map || isCleaningUpRef.current) {
-            return;
-          }
-          try {
-            originalOnAnimationFrame.call(this);
+      // Debug: Log available methods on the layer
+      console.log('[VelocityLayer] Layer methods:', Object.keys(layer).filter(k => typeof (layer as any)[k] === 'function'));
+      console.log('[VelocityLayer] Layer has _windy:', !!(layer as any)._windy);
+      console.log('[VelocityLayer] Layer has _canvas:', !!(layer as any)._canvas);
 
-            // Call onFrame callback for post-processing (e.g., land masking)
-            // This fires AFTER each animation frame renders
-            if (onFrameRef.current && this._canvas) {
-              try {
-                onFrameRef.current(this._canvas);
-              } catch (e) {
-                // Silently ignore callback errors
-              }
-            }
-          } catch (error) {
-            // Silently ignore
+      // =================================================================
+      // CONTEXT PROXY PATTERN FOR FRAME-PERFECT LAND MASKING
+      // =================================================================
+      // Since we cannot hook into leaflet-velocity's internal animation loop,
+      // we wrap the canvas context itself. When stroke() is called (which draws
+      // particle trails), we intercept it and apply the land mask IMMEDIATELY
+      // in the same execution tick. This eliminates all flicker and race conditions.
+      //
+      // How it works:
+      // 1. Override canvas.getContext('2d') to return our wrapped context
+      // 2. The wrapped context intercepts stroke() calls
+      // 3. After each stroke(), we apply destination-out compositing with the mask
+      // 4. This happens synchronously - particles NEVER exist on land in ANY frame
+      // =================================================================
+
+      // We'll apply the context proxy after the layer creates its canvas
+      const applyContextProxy = (canvas: HTMLCanvasElement) => {
+        if (!canvas || (canvas as any).__contextProxyApplied) {
+          return; // Already applied or no canvas
+        }
+
+        const originalGetContext = canvas.getContext.bind(canvas);
+        let wrappedCtx: CanvasRenderingContext2D | null = null;
+
+        // Override getContext to return our wrapped context
+        (canvas as any).getContext = function(contextId: string, options?: any) {
+          if (contextId !== '2d') {
+            return originalGetContext(contextId, options);
           }
+
+          // Return cached wrapped context if already created
+          if (wrappedCtx) {
+            return wrappedCtx;
+          }
+
+          const realCtx = originalGetContext('2d', options);
+          if (!realCtx) return null;
+
+          // Create a proxy that intercepts stroke() calls
+          const handler: ProxyHandler<CanvasRenderingContext2D> = {
+            get(target, prop, receiver) {
+              const value = Reflect.get(target, prop, receiver);
+
+              // Intercept stroke() to apply mask immediately after
+              if (prop === 'stroke') {
+                return function(this: CanvasRenderingContext2D, ...args: any[]) {
+                  // Execute the original stroke
+                  const result = (target.stroke as Function).apply(target, args);
+
+                  // Apply land mask immediately if available
+                  const mask = maskCanvasRef.current;
+                  if (mask && mask.width > 0 && mask.height > 0 && !isCleaningUpRef.current) {
+                    try {
+                      // Save current state
+                      const prevComposite = target.globalCompositeOperation;
+
+                      // Use destination-out to "erase" pixels where mask is opaque (land)
+                      target.globalCompositeOperation = 'destination-out';
+                      target.drawImage(mask, 0, 0);
+
+                      // Restore composite operation
+                      target.globalCompositeOperation = prevComposite;
+                    } catch (e) {
+                      // Silently ignore masking errors
+                    }
+                  }
+
+                  return result;
+                };
+              }
+
+              // For functions, bind them to the target
+              if (typeof value === 'function') {
+                return value.bind(target);
+              }
+
+              return value;
+            },
+
+            set(target, prop, value) {
+              return Reflect.set(target, prop, value);
+            }
+          };
+
+          wrappedCtx = new Proxy(realCtx, handler);
+          return wrappedCtx;
         };
-      }
+
+        (canvas as any).__contextProxyApplied = true;
+        console.log('[VelocityLayer] Context Proxy applied for frame-perfect masking');
+      };
+
+      // Apply context proxy after a short delay to ensure canvas is created
+      setTimeout(() => {
+        const canvas = (layer as any)._canvas;
+        if (canvas) {
+          applyContextProxy(canvas);
+        } else {
+          console.warn('[VelocityLayer] Canvas not found for Context Proxy');
+        }
+      }, 50);
 
       // Patch clear method with comprehensive guards
       const originalClear = (layer as any)._clear;

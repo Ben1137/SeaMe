@@ -395,7 +395,9 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
     const canvas = particleCanvasRef.current;
     const cache = gridCache.current;
 
-    if (!cache || !visible || !map) {
+    // CRITICAL: Wait for mask to be initialized before drawing particles
+    // This prevents particles from appearing on land during initial load
+    if (!cache || !visible || !map || !isInitialized) {
       animationFrameRef.current = requestAnimationFrame(animateParticles);
       return;
     }
@@ -509,7 +511,7 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
     }
 
     animationFrameRef.current = requestAnimationFrame(animateParticles);
-  }, [map, visible, respawnInSea]);
+  }, [map, visible, respawnInSea, isInitialized]);
 
   // Custom Layer Implementation
   useEffect(() => {
