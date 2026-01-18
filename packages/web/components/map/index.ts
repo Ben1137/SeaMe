@@ -14,3 +14,6 @@ export { GeoJSONLayers, type GeoJSONLayersProps } from './GeoJSONLayers';
 export { BathymetryLayer, type BathymetryLayerProps } from './BathymetryLayer';
 export { PortsLayer, type PortsLayerProps, type PortFeature } from './PortsLayer';
 export { ReefLayer, type ReefLayerProps, type ReefFeature } from './ReefLayer';
+
+// Weather Radar Layer
+export { RainRadarLayer, useRainRadarFrames, type RainRadarLayerProps, type RainRadarControls } from './RainRadarLayer';

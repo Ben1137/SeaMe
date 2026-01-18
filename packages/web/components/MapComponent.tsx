@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { MaskedVelocityLayer } from './map/MaskedVelocityLayer';
 import { WaveHeatmapLayer } from './map/WaveHeatmapLayer';
 import { SmoothWaveHeatmap } from './map/SmoothWaveHeatmap';
+import { RainRadarLayer } from './map/RainRadarLayer';
 // import { CrispLandMask, CrispLandMaskStyles } from './map/CrispLandMask'; // Removed: SmoothWaveHeatmap now handles land clipping internally
 import { ColorScaleLegend } from './map/ColorScaleLegend';
 import { GeoJSONLayers } from './map/GeoJSONLayers';
@@ -121,6 +122,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
     reefs: false,
     ports: false,
     marineAreas: false,
+    radar: false,
   });
 
   useEffect(() => {
@@ -795,6 +797,14 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
                >
                   <MapPin size={12} /> {t('map.marineAreas') || 'Marine Areas'}
                </button>
+
+               {/* Rain Radar Toggle */}
+               <button
+                 onClick={() => setGeoJSONLayers(prev => ({ ...prev, radar: !prev.radar }))}
+                 className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 transition-colors ${geoJSONLayers.radar ? 'bg-sky-600 text-primary' : 'text-muted hover:bg-hover'}`}
+               >
+                  <Droplets size={12} /> {t('map.rainRadar') || 'Rain Radar'}
+               </button>
             </div>
             {(loadingGrid || loadingAdvancedLayer) && (
                <div className="pb-2 px-2 text-[10px] text-center text-blue-300 animate-pulse">{t('map.updatingForecast')}</div>
@@ -1024,6 +1034,13 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
         map={mapInstance.current}
         visible={geoJSONLayers.reefs}
         opacity={0.7}
+      />
+
+      {/* Rain Radar Layer */}
+      <RainRadarLayer
+        map={mapInstance.current}
+        visible={geoJSONLayers.radar}
+        opacity={0.5}
       />
 
       {/* Advanced Visualization Layers - Using MaskedVelocityLayer for sea-only rendering */}

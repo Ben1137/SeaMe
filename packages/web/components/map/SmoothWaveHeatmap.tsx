@@ -49,6 +49,10 @@ const PARTICLE_MAX_AGE = 150;        // Particles live longer
 const PARTICLE_TRAIL_FADE = 0.96;    // 0.96 = Long, silky trails (Windy style)
 const PARTICLE_WIDTH = 1.0;          // Thinner, crisper lines
 
+// FPS Throttling for better mobile performance
+const TARGET_FPS = 30;               // 30 FPS is smooth enough and saves CPU
+const FRAME_INTERVAL = 1000 / TARGET_FPS;
+
 // Windy-style Wave Color Scale
 // Note: We handle 0.0 - 0.1 manually as transparent
 const WINDY_WAVE_SCALE = chroma
@@ -387,8 +391,11 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
     // After max attempts, just use the last position (will be filtered later)
   }, []);
 
-  // Animation Loop with proper requestAnimationFrame throttling
-  const animateParticles = useCallback(() => {
+  // Track last frame time for FPS throttling
+  const lastFrameTimeRef = useRef<number>(0);
+
+  // Animation Loop with FPS throttling for better mobile performance
+  const animateParticles = useCallback((currentTime: number = 0) => {
     // Safety check for cleanup
     if (!particleCanvasRef.current) return;
 
@@ -401,6 +408,14 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
       animationFrameRef.current = requestAnimationFrame(animateParticles);
       return;
     }
+
+    // FPS Throttling: Only render at target FPS
+    const delta = currentTime - lastFrameTimeRef.current;
+    if (delta < FRAME_INTERVAL) {
+      animationFrameRef.current = requestAnimationFrame(animateParticles);
+      return;
+    }
+    lastFrameTimeRef.current = currentTime - (delta % FRAME_INTERVAL);
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -531,6 +546,30 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
     }
 
     const CustomLayer = L.Layer.extend({
+      // Leaflet-recommended pattern: Return event handlers as object
+      // Leaflet will automatically bind/unbind these events
+      getEvents: function() {
+        return {
+          movestart: this._onMoveStart,
+          move: this._onMove,
+          moveend: this._onMoveEnd,
+          zoomstart: this._onZoomStart,
+          zoomend: this._onZoomEnd,
+          zoomanim: this._onZoomAnim,
+          resize: this._resize
+        };
+      },
+
+      // Smooth zoom transition: Hide canvases during zoom animation
+      _onZoomAnim: function(e: L.ZoomAnimEvent) {
+        if (this._canvas) {
+          this._canvas.style.opacity = '0.3';
+        }
+        if (this._particleCanvas) {
+          this._particleCanvas.style.opacity = '0.3';
+        }
+      },
+
       onAdd: function(map: L.Map) {
         const size = map.getSize();
         const bounds = map.getBounds();
@@ -592,15 +631,12 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
 
         // Start Animation Loop
         cancelAnimationFrame(animationFrameRef.current);
-        animateParticles();
+        animateParticles(0);
 
-        // Event Listeners - optimized for smooth pan/zoom
-        map.on('movestart', this._onMoveStart, this);
-        map.on('move', this._onMove, this);
-        map.on('moveend', this._onMoveEnd, this);
-        map.on('zoomstart', this._onZoomStart, this);
-        map.on('zoomend', this._onZoomEnd, this);
-        map.on('resize', this._resize, this);
+        // Note: Event listeners are now handled by getEvents() pattern
+        // Leaflet automatically binds/unbinds events defined in getEvents()
+
+        return this;
       },
 
       onRemove: function(map: L.Map) {
@@ -626,12 +662,10 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
         particleCanvasRef.current = null;
         maskCanvasRef.current = null;
 
-        map.off('movestart', this._onMoveStart, this);
-        map.off('move', this._onMove, this);
-        map.off('moveend', this._onMoveEnd, this);
-        map.off('zoomstart', this._onZoomStart, this);
-        map.off('zoomend', this._onZoomEnd, this);
-        map.off('resize', this._resize, this);
+        // Note: Event listeners are automatically unbound by Leaflet
+        // when using getEvents() pattern - no manual cleanup needed
+
+        return this;
       },
 
       _onMoveStart: function() {
@@ -691,6 +725,14 @@ export const SmoothWaveHeatmap = ({ gridData, visible, opacity, map }: SmoothWav
           cachedRendererRef.current.setMoving(false);
           // Invalidate cache on zoom change (projection changed)
           cachedRendererRef.current.invalidateCache();
+        }
+
+        // Restore canvas opacity after zoom animation
+        if (this._canvas) {
+          this._canvas.style.opacity = String(opacity);
+        }
+        if (this._particleCanvas) {
+          this._particleCanvas.style.opacity = '1';
         }
 
         // DEBOUNCED redraw to prevent freeze during rapid zoom animations
