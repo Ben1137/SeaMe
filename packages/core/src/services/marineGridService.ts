@@ -292,22 +292,26 @@ export async function fetchMarineGridData(
     const lngs = coordinates.map(c => c.lng.toFixed(4)).join(',');
 
     // Fetch marine data for all grid points
+    // Best Practice: Use cell_selection: 'sea' to prioritize ocean grid cells
     const marineParams = new URLSearchParams({
       latitude: lats,
       longitude: lngs,
-      current: 'wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,' +
-               'ocean_current_velocity,ocean_current_direction,sea_surface_temperature',
+      current: 'wave_height,wave_direction,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_period,' +
+               'ocean_current_velocity,ocean_current_direction,sea_surface_temperature,wind_wave_height,wind_wave_direction,sea_level_height_msl',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: WEATHER_CONSTANTS.MODEL
+      models: WEATHER_CONSTANTS.MODEL,
+      cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
     });
 
     // Fetch atmospheric data (wind) from forecast API
+    // Best Practice: Use cell_selection: 'land' for wind data accuracy
     const forecastParams = new URLSearchParams({
       latitude: lats,
       longitude: lngs,
-      current: 'wind_speed_10m,wind_direction_10m',
+      current: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: WEATHER_CONSTANTS.MODEL
+      models: WEATHER_CONSTANTS.MODEL,
+      cell_selection: WEATHER_CONSTANTS.LAND_CELL_SELECTION
     });
 
     // Use deduplicatedFetch to prevent duplicate API calls

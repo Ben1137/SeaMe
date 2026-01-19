@@ -116,11 +116,30 @@ export const WEATHER_CONSTANTS = {
   /** Hourly data points per day */
   HOURS_PER_DAY: 24,
 
-  /** Timezone for API requests */
-  TIMEZONE: 'GMT',
+  /**
+   * Timezone for API requests
+   * Best Practice: Use 'auto' to automatically detect local timezone
+   * This provides better UX as times are returned in user's local timezone
+   * @see https://open-meteo.com/en/docs
+   */
+  TIMEZONE: 'auto',
 
   /** Best match model selection */
   MODEL: 'best_match',
+
+  /**
+   * Cell selection for marine data
+   * Best Practice: Use 'sea' to prioritize ocean grid cells for marine data
+   * Options: 'sea' | 'land' | 'nearest'
+   * @see https://open-meteo.com/en/docs/marine-weather-api
+   */
+  MARINE_CELL_SELECTION: 'sea',
+
+  /**
+   * Cell selection for land/coastal data
+   * Best Practice: Use 'land' for elevation-based grid selection
+   */
+  LAND_CELL_SELECTION: 'land',
 
   /** Wave height threshold for ocean detection (meters) */
   WAVE_HEIGHT_LAND_THRESHOLD: 0.05,

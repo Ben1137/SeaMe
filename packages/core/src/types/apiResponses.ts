@@ -19,15 +19,24 @@ export interface MarineApiHourly {
   wave_height?: number[];
   wave_direction?: number[];
   wave_period?: number[];
+  wave_peak_period?: number[];
   swell_wave_height?: number[];
   swell_wave_direction?: number[];
   swell_wave_period?: number[];
+  swell_wave_peak_period?: number[];
   sea_surface_temperature?: number[];
   ocean_current_velocity?: number[];
   ocean_current_direction?: number[];
   wind_wave_height?: number[];
   wind_wave_direction?: number[];
   wind_wave_period?: number[];
+  wind_wave_peak_period?: number[];
+  /** Sea level height (mean sea level) - useful for tidal data */
+  sea_level_height_msl?: number[];
+  /** Secondary swell components (available from some models) */
+  secondary_swell_wave_height?: number[];
+  secondary_swell_wave_direction?: number[];
+  secondary_swell_wave_period?: number[];
 }
 
 export interface MarineApiDaily {
@@ -44,15 +53,20 @@ export interface MarineApiCurrent {
   sea_surface_temperature?: number;
   wave_height?: number;
   wave_period?: number;
+  wave_peak_period?: number;
   wave_direction?: number;
   swell_wave_height?: number;
   swell_wave_direction?: number;
   swell_wave_period?: number;
+  swell_wave_peak_period?: number;
   ocean_current_velocity?: number;
   ocean_current_direction?: number;
   wind_wave_height?: number;
   wind_wave_direction?: number;
   wind_wave_period?: number;
+  wind_wave_peak_period?: number;
+  /** Sea level height (mean sea level) - useful for tidal data */
+  sea_level_height_msl?: number;
 }
 
 export interface MarineApiHourlyUnits {
@@ -104,6 +118,7 @@ export interface ForecastApiHourly {
   relative_humidity_2m?: number[];
   apparent_temperature?: number[];
   precipitation?: number[];
+  precipitation_probability?: number[];
   weather_code?: number[];
   pressure_msl?: number[];
   surface_pressure?: number[];

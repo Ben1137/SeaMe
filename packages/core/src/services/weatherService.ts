@@ -20,27 +20,36 @@ import { deduplicatedFetch } from '../utils/requestDeduplication';
 
 export const fetchMarineWeather = async (lat: number, lng: number): Promise<MarineWeatherData> => {
   try {
-    // MARINE API: Only fetch wave data & Sea Surface Temp.
+    // MARINE API: Fetch wave data, sea temp, currents, and tidal data
+    // Best Practices Applied:
+    // - cell_selection: 'sea' to prioritize ocean grid cells
+    // - timezone: 'auto' for user's local timezone
+    // - Added wave_peak_period, wind_wave data, and sea_level_height_msl for tidal info
     const marineParams = new URLSearchParams({
       latitude: lat.toString(),
       longitude: lng.toString(),
-      hourly: 'wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature',
-      daily: 'wave_height_max,swell_wave_height_max,swell_wave_direction_dominant,wave_period_max',
-      current: 'sea_surface_temperature,wave_height,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period',
+      hourly: 'wave_height,wave_direction,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_period,swell_wave_peak_period,wind_wave_height,wind_wave_direction,wind_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction,sea_level_height_msl',
+      daily: 'wave_height_max,wave_direction_dominant,wave_period_max,swell_wave_height_max,swell_wave_direction_dominant,swell_wave_period_max,wind_wave_height_max,wind_wave_direction_dominant,wind_wave_period_max',
+      current: 'sea_surface_temperature,wave_height,wave_direction,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_period,wind_wave_height,wind_wave_direction,wind_wave_period,ocean_current_velocity,ocean_current_direction,sea_level_height_msl',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
       forecast_days: WEATHER_CONSTANTS.FORECAST_DAYS.toString(),
-      models: WEATHER_CONSTANTS.MODEL
+      models: WEATHER_CONSTANTS.MODEL,
+      cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
     });
 
     // FORECAST API: Fetch atmospheric data (Wind, Temp, Pressure)
+    // Best Practices Applied:
+    // - cell_selection: 'land' for coastal/land data accuracy
+    // - timezone: 'auto' for user's local timezone
     const generalParams = new URLSearchParams({
       latitude: lat.toString(),
       longitude: lng.toString(),
-      current: 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,visibility',
-      daily: 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max',
-      hourly: 'pressure_msl,visibility,relative_humidity_2m,wind_speed_10m,wind_direction_10m,uv_index,weather_code',
+      current: 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure,visibility',
+      daily: 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant',
+      hourly: 'pressure_msl,visibility,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,weather_code,precipitation_probability',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: WEATHER_CONSTANTS.MODEL
+      models: WEATHER_CONSTANTS.MODEL,
+      cell_selection: WEATHER_CONSTANTS.LAND_CELL_SELECTION
     });
 
     // Use deduplicatedFetch to prevent duplicate API calls
@@ -104,20 +113,42 @@ export const fetchMarineWeather = async (lat: number, lng: number): Promise<Mari
     const tides = generateTideData(lat, lng);
 
     const mergedHourly = {
-      ...marineData.hourly, // Waves, Sea Temp
+      ...marineData.hourly, // Waves, Sea Temp, Currents, Sea Level
       pressure_msl: hourly.pressure_msl || [],
       visibility: hourly.visibility || [],
       wind_speed_10m: hourly.wind_speed_10m || [],
       wind_direction_10m: hourly.wind_direction_10m || [],
-      wind_gusts_10m: new Array(marineData.hourly.time.length).fill(0),
+      wind_gusts_10m: hourly.wind_gusts_10m || new Array(marineData.hourly.time.length).fill(0),
       relative_humidity_2m: hourly.relative_humidity_2m || [],
       uv_index: hourly.uv_index || [],
-      weather_code: hourly.weather_code || []
+      weather_code: hourly.weather_code || [],
+      precipitation_probability: hourly.precipitation_probability || []
+    };
+
+    // Construct the daily object with merged data from marine and forecast APIs
+    const mergedDaily = {
+      time: marineData.daily?.time || [],
+      wave_height_max: marineData.daily?.wave_height_max || [],
+      wave_period_max: marineData.daily?.wave_period_max || [],
+      swell_wave_height_max: marineData.daily?.swell_wave_height_max || [],
+      swell_wave_direction_dominant: marineData.daily?.swell_wave_direction_dominant || [],
+      // These come from the forecast API daily data
+      wind_speed_10m_max: daily.wind_speed_10m_max || [],
+      wind_direction_10m_dominant: daily.wind_direction_10m_dominant || [],
+      sunrise: daily.sunrise || [],
+      sunset: daily.sunset || []
     };
 
     return {
-      ...marineData,
+      latitude: marineData.latitude,
+      longitude: marineData.longitude,
+      hourly_units: marineData.hourly_units || {
+        wave_height: 'm',
+        wind_speed_10m: 'm/s',
+        swell_wave_height: 'm'
+      },
       hourly: mergedHourly,
+      daily: mergedDaily,
       tides,
       general,
       current: {
@@ -150,20 +181,24 @@ export const fetchMarineWeather = async (lat: number, lng: number): Promise<Mari
 
 export const fetchPointForecast = async (lat: number, lng: number): Promise<PointForecast> => {
   try {
+    // Marine data with cell_selection: 'sea' for ocean accuracy
     const params = new URLSearchParams({
       latitude: lat.toString(),
       longitude: lng.toString(),
-      current: 'wave_height,swell_wave_height,swell_wave_direction,sea_surface_temperature',
+      current: 'wave_height,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: WEATHER_CONSTANTS.MODEL
+      models: WEATHER_CONSTANTS.MODEL,
+      cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
     });
 
+    // Forecast data with cell_selection: 'land' for atmospheric accuracy
     const tempParams = new URLSearchParams({
         latitude: lat.toString(),
         longitude: lng.toString(),
-        current: 'temperature_2m,weather_code,wind_speed_10m,wind_direction_10m',
+        current: 'temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m',
         timezone: WEATHER_CONSTANTS.TIMEZONE,
-        models: WEATHER_CONSTANTS.MODEL
+        models: WEATHER_CONSTANTS.MODEL,
+        cell_selection: WEATHER_CONSTANTS.LAND_CELL_SELECTION
     });
 
     // Use deduplicatedFetch to prevent duplicate API calls
@@ -207,22 +242,25 @@ export const fetchPointForecast = async (lat: number, lng: number): Promise<Poin
 export const fetchHourlyPointForecast = async (lat: number, lng: number): Promise<DetailedPointForecast | null> => {
   try {
     // We combine calls here to get best of both worlds: Accurate Wind + Accurate Waves
+    // Best Practice: Use cell_selection to optimize for each data type
     const marineParams = new URLSearchParams({
       latitude: lat.toString(),
       longitude: lng.toString(),
-      hourly: 'wave_height,swell_wave_height,ocean_current_velocity,ocean_current_direction',
+      hourly: 'wave_height,wave_period,swell_wave_height,swell_wave_period,ocean_current_velocity,ocean_current_direction,sea_level_height_msl',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
       forecast_days: '2',
-      models: WEATHER_CONSTANTS.MODEL
+      models: WEATHER_CONSTANTS.MODEL,
+      cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
     });
 
     const forecastParams = new URLSearchParams({
       latitude: lat.toString(),
       longitude: lng.toString(),
-      hourly: 'wind_speed_10m,wind_direction_10m',
+      hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
       forecast_days: '2',
-      models: WEATHER_CONSTANTS.MODEL
+      models: WEATHER_CONSTANTS.MODEL,
+      cell_selection: WEATHER_CONSTANTS.LAND_CELL_SELECTION
     });
 
     // Use deduplicatedFetch to prevent duplicate API calls
@@ -266,25 +304,30 @@ export const fetchHourlyPointForecast = async (lat: number, lng: number): Promis
 export const fetchBulkPointForecast = async (coordinates: {lat: number, lng: number}[]): Promise<PointForecast[]> => {
   if (coordinates.length === 0) return [];
 
-  // Open-Meteo allows comma separated lists
+  // Open-Meteo allows comma separated lists for bulk queries
+  // This is an optimization to reduce API calls
   const lats = coordinates.map(c => c.lat.toFixed(4)).join(',');
   const lngs = coordinates.map(c => c.lng.toFixed(4)).join(',');
 
   try {
+    // Marine data with cell_selection: 'sea' for accurate ocean data
     const marineParams = new URLSearchParams({
       latitude: lats,
       longitude: lngs,
-      current: 'wave_height,wave_period,swell_wave_height,swell_wave_direction,sea_surface_temperature,ocean_current_velocity,ocean_current_direction,wind_wave_height,wind_wave_direction,wind_wave_period',
+      current: 'wave_height,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction,wind_wave_height,wind_wave_direction,wind_wave_period',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: WEATHER_CONSTANTS.MODEL
+      models: WEATHER_CONSTANTS.MODEL,
+      cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
     });
 
+    // Forecast data with cell_selection: 'land' for atmospheric accuracy
     const forecastParams = new URLSearchParams({
         latitude: lats,
         longitude: lngs,
-        current: 'temperature_2m,weather_code,wind_speed_10m,wind_direction_10m',
+        current: 'temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m',
         timezone: WEATHER_CONSTANTS.TIMEZONE,
-        models: WEATHER_CONSTANTS.MODEL
+        models: WEATHER_CONSTANTS.MODEL,
+        cell_selection: WEATHER_CONSTANTS.LAND_CELL_SELECTION
     });
 
     // Use deduplicatedFetch to prevent duplicate API calls for bulk requests
