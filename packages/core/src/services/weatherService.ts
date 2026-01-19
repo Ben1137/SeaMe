@@ -182,10 +182,22 @@ export const fetchMarineWeather = async (lat: number, lng: number): Promise<Mari
 export const fetchPointForecast = async (lat: number, lng: number): Promise<PointForecast> => {
   try {
     // Marine data with cell_selection: 'sea' for ocean accuracy
+    // Best Practice: Request comprehensive marine parameters
     const params = new URLSearchParams({
       latitude: lat.toString(),
       longitude: lng.toString(),
-      current: 'wave_height,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction',
+      current: [
+        // Wave data
+        'wave_height', 'wave_period', 'wave_peak_period',
+        // Swell data
+        'swell_wave_height', 'swell_wave_direction', 'swell_wave_period',
+        // Wind wave data
+        'wind_wave_height', 'wind_wave_direction', 'wind_wave_period',
+        // Ocean currents
+        'ocean_current_velocity', 'ocean_current_direction',
+        // Temperature
+        'sea_surface_temperature'
+      ].join(','),
       timezone: WEATHER_CONSTANTS.TIMEZONE,
       models: WEATHER_CONSTANTS.MODEL,
       cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
@@ -213,11 +225,24 @@ export const fetchPointForecast = async (lat: number, lng: number): Promise<Poin
     return {
       lat,
       lng,
+      // Wave data
       waveHeight: data.current?.wave_height || 0,
+      wavePeriod: data.current?.wave_period || 0,
+      // Wind data
       windSpeed: tempData.current?.wind_speed_10m || 0,
       windDirection: tempData.current?.wind_direction_10m || 0,
+      // Swell data
       swellHeight: data.current?.swell_wave_height || 0,
       swellDirection: data.current?.swell_wave_direction || 0,
+      swellPeriod: data.current?.swell_wave_period || 0,
+      // Wind wave data
+      windWaveHeight: data.current?.wind_wave_height || 0,
+      windWaveDirection: data.current?.wind_wave_direction || 0,
+      windWavePeriod: data.current?.wind_wave_period || 0,
+      // Ocean current data
+      currentSpeed: data.current?.ocean_current_velocity || 0,
+      currentDirection: data.current?.ocean_current_direction || 0,
+      // Temperature & weather
       temp: tempData.current?.temperature_2m || 0,
       weatherCode: tempData.current?.weather_code || 0,
       weatherDesc: getWeatherDescription(tempData.current?.weather_code || 0)
@@ -228,10 +253,17 @@ export const fetchPointForecast = async (lat: number, lng: number): Promise<Poin
       lat,
       lng,
       waveHeight: 0,
+      wavePeriod: 0,
       windSpeed: 0,
       windDirection: 0,
       swellHeight: 0,
       swellDirection: 0,
+      swellPeriod: 0,
+      windWaveHeight: 0,
+      windWaveDirection: 0,
+      windWavePeriod: 0,
+      currentSpeed: 0,
+      currentDirection: 0,
       temp: 0,
       weatherCode: 0,
       weatherDesc: 'Unavailable'

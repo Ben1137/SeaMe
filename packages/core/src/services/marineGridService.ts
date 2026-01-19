@@ -62,6 +62,7 @@ export interface MarineGridPoint {
   // Wind data
   windSpeed?: number;      // m/s
   windDirection?: number;  // degrees
+  windGusts?: number;      // m/s - wind gusts
   windU?: number;         // U component (east-west)
   windV?: number;         // V component (north-south)
 
@@ -71,14 +72,24 @@ export interface MarineGridPoint {
   currentU?: number;         // U component
   currentV?: number;         // V component
 
-  // Wave data
-  waveHeight?: number;        // meters
+  // Wave data (significant wave = combination of wind waves + swell)
+  waveHeight?: number;        // meters - significant wave height
   waveDirection?: number;     // degrees
-  wavePeriod?: number;        // seconds
+  wavePeriod?: number;        // seconds - mean wave period
+  wavePeakPeriod?: number;    // seconds - peak wave period (most energy)
+
+  // Swell data (long-period waves from distant storms)
   swellHeight?: number;       // meters
   swellDirection?: number;    // degrees
+  swellPeriod?: number;       // seconds
 
-  // Additional marine data
+  // Wind wave data (locally generated waves)
+  windWaveHeight?: number;    // meters
+  windWaveDirection?: number; // degrees
+  windWavePeriod?: number;    // seconds
+
+  // Sea level and temperature
+  seaLevelHeight?: number;    // meters - sea level height MSL (tidal)
   seaTemperature?: number;    // Celsius
 }
 
@@ -293,11 +304,22 @@ export async function fetchMarineGridData(
 
     // Fetch marine data for all grid points
     // Best Practice: Use cell_selection: 'sea' to prioritize ocean grid cells
+    // Requesting comprehensive marine parameters for accurate ocean data
     const marineParams = new URLSearchParams({
       latitude: lats,
       longitude: lngs,
-      current: 'wave_height,wave_direction,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_period,' +
-               'ocean_current_velocity,ocean_current_direction,sea_surface_temperature,wind_wave_height,wind_wave_direction,sea_level_height_msl',
+      current: [
+        // Significant wave data (combined wind waves + swell)
+        'wave_height', 'wave_direction', 'wave_period', 'wave_peak_period',
+        // Swell data (long-period waves from distant storms)
+        'swell_wave_height', 'swell_wave_direction', 'swell_wave_period',
+        // Wind wave data (locally generated waves)
+        'wind_wave_height', 'wind_wave_direction', 'wind_wave_period',
+        // Ocean currents
+        'ocean_current_velocity', 'ocean_current_direction',
+        // Sea temperature and level
+        'sea_surface_temperature', 'sea_level_height_msl'
+      ].join(','),
       timezone: WEATHER_CONSTANTS.TIMEZONE,
       models: WEATHER_CONSTANTS.MODEL,
       cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
@@ -329,10 +351,13 @@ export async function fetchMarineGridData(
       const forecast = forecastArray[index] || {};
       const coord = coordinates[index];
 
+      // Wind data from forecast API (atmospheric)
       const windSpeed = forecast.current?.wind_speed_10m || 0;
       const windDirection = forecast.current?.wind_direction_10m || 0;
+      const windGusts = forecast.current?.wind_gusts_10m || 0;
       const windUV = directionSpeedToUV(windSpeed, windDirection);
 
+      // Ocean current data from marine API
       const currentSpeed = marine.current?.ocean_current_velocity || 0;
       const currentDirection = marine.current?.ocean_current_direction || 0;
       const currentUV = directionSpeedToUV(currentSpeed, currentDirection);
@@ -341,26 +366,37 @@ export async function fetchMarineGridData(
         lat: coord.lat,
         lng: coord.lng,
 
-        // Wind
+        // Wind (from Forecast API with cell_selection: 'land')
         windSpeed,
         windDirection,
+        windGusts,
         windU: windUV.u,
         windV: windUV.v,
 
-        // Current
+        // Ocean Currents (from Marine API with cell_selection: 'sea')
         currentSpeed,
         currentDirection,
         currentU: currentUV.u,
         currentV: currentUV.v,
 
-        // Waves
+        // Significant Wave (combined wind waves + swell)
         waveHeight: marine.current?.wave_height || 0,
         waveDirection: marine.current?.wave_direction || 0,
         wavePeriod: marine.current?.wave_period || 0,
+        wavePeakPeriod: marine.current?.wave_peak_period || 0,
+
+        // Swell (long-period waves from distant storms)
         swellHeight: marine.current?.swell_wave_height || 0,
         swellDirection: marine.current?.swell_wave_direction || 0,
+        swellPeriod: marine.current?.swell_wave_period || 0,
 
-        // Temperature
+        // Wind Waves (locally generated)
+        windWaveHeight: marine.current?.wind_wave_height || 0,
+        windWaveDirection: marine.current?.wind_wave_direction || 0,
+        windWavePeriod: marine.current?.wind_wave_period || 0,
+
+        // Sea Level & Temperature
+        seaLevelHeight: marine.current?.sea_level_height_msl || 0,
         seaTemperature: marine.current?.sea_surface_temperature || 0
       };
     });
