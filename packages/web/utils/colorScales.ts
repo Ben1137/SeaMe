@@ -288,6 +288,31 @@ function generateWindyWaveColorScale(): ColorScalePoint[] {
 }
 
 /**
+ * Bathymetry depth color scale
+ * Progression: Light blue (shallow) -> Dark blue (deep)
+ */
+function generateBathymetryColorScale(): ColorScalePoint[] {
+  return [
+    { value: 0, color: '#e6f2ff', label: '0m' },
+    { value: 200, color: '#cce5ff', label: '200m' },
+    { value: 1000, color: '#99ccff', label: '1000m' },
+    { value: 2000, color: '#6699cc', label: '2000m' },
+    { value: 3000, color: '#4d88b8', label: '3000m' },
+    { value: 4000, color: '#336699', label: '4000m' },
+    { value: 6000, color: '#1a4d80', label: '6000m+' },
+  ];
+}
+
+/**
+ * Marine Areas color scale (single color indicator)
+ */
+function generateMarineAreasColorScale(): ColorScalePoint[] {
+  return [
+    { value: 1, color: '#6ba3e0', label: 'Marine Area' },
+  ];
+}
+
+/**
  * Get all color scales for reference/legend display
  */
 export const COLOR_SCALES = {
@@ -296,6 +321,8 @@ export const COLOR_SCALES = {
   windyWave: generateWindyWaveColorScale(),
   current: generateColorScale('current'),
   temp: generateColorScale('temp'),
+  bathymetry: generateBathymetryColorScale(),
+  marineAreas: generateMarineAreasColorScale(),
 } as const;
 
 /**

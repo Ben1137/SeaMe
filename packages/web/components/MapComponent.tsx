@@ -685,9 +685,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
               {isLayersPanelExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
           <div
-            className="transition-all duration-300 ease-in-out overflow-hidden"
+            className="transition-all duration-300 ease-in-out overflow-hidden overflow-y-auto"
             style={{
-              maxHeight: isLayersPanelExpanded ? '500px' : '0',
+              maxHeight: isLayersPanelExpanded ? '70vh' : '0',
               opacity: isLayersPanelExpanded ? 1 : 0
             }}
           >
@@ -1041,6 +1041,8 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
         map={mapInstance.current}
         visible={geoJSONLayers.radar}
         opacity={0.5}
+        animated={true}
+        animationSpeed={600}
       />
 
       {/* Advanced Visualization Layers - Using MaskedVelocityLayer for sea-only rendering */}
@@ -1118,6 +1120,40 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
           title={t('map.legend.waveHeight')}
           position="bottomright"
         />
+      )}
+
+      {/* Bathymetry Legend - Show when bathymetry layer is active */}
+      {geoJSONLayers.bathymetry && (
+        <ColorScaleLegend
+          scale={COLOR_SCALES.bathymetry}
+          unit="m"
+          title={t('map.legend.bathymetry')}
+          position="bottomleft"
+        />
+      )}
+
+      {/* Marine Areas Legend - Show when marine areas layer is active */}
+      {geoJSONLayers.marineAreas && (
+        <div
+          className="absolute z-[350] bottom-4 left-32 pointer-events-none"
+        >
+          <div className="bg-slate-900/90 backdrop-blur-sm border border-slate-700/50 rounded-lg shadow-xl overflow-hidden w-[110px] animate-in fade-in slide-in-from-bottom-4 pointer-events-auto">
+            <div className="px-2 py-1.5 border-b border-slate-700/50 bg-slate-800/50">
+              <h3 className="text-[10px] font-bold text-white uppercase tracking-wide truncate">
+                {t('map.legend.marineAreas')}
+              </h3>
+            </div>
+            <div className="p-2">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-6 h-6 rounded border border-slate-700/50"
+                  style={{ backgroundColor: '#6ba3e0', opacity: 0.6 }}
+                />
+                <span className="text-[10px] text-white">{t('map.marineAreas')}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

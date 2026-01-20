@@ -275,7 +275,9 @@
       "seaTemperature": "Sea Temperature",
       "swellHeight": "Swell Height",
       "windWaveHeight": "Wind Wave Height",
-      "significantWaveHeight": "Significant Wave Height"
+      "significantWaveHeight": "Significant Wave Height",
+      "bathymetry": "Ocean Depth",
+      "marineAreas": "Marine Areas"
     },
     "geoJSONLayers": "Map Overlays",
     "coastline": "Coastline",
@@ -283,6 +285,7 @@
     "reefs": "Coral Reefs",
     "ports": "Ports",
     "marineAreas": "Marine Areas",
+    "rainRadar": "Rain Radar",
     "loadingGeoJSON": "Loading map data..."
   },
   "units": {
