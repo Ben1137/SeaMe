@@ -55,6 +55,7 @@ const TILE_URL_TEMPLATE = 'https://tilecache.rainviewer.com{path}/512/{z}/{x}/{y
 const REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
 const DEFAULT_ANIMATION_SPEED = 500; // 500ms per frame
 const DEFAULT_OPACITY = 0.5;
+const MAX_CACHED_LAYERS = 3; // Only cache current, previous, and next frames to prevent memory issues
 
 // RainViewer color scheme 2 precipitation scale (mm/h)
 // Colors match the tile color scheme used in TILE_URL_TEMPLATE
@@ -81,8 +82,6 @@ export function RainRadarLayer({
   animationSpeed = DEFAULT_ANIMATION_SPEED,
   paneName = 'radarPane',
 }: RainRadarLayerProps) {
-  // Debug: Log on every render
-  console.log('[RainRadarLayer] Render - visible:', visible, 'map:', map ? 'present' : 'null', 'opacity:', opacity);
 
   // Use a cache of tile layers for smooth transitions (no flickering)
   const layerCacheRef = useRef<Map<string, L.TileLayer>>(new Map());
@@ -119,7 +118,7 @@ export function RainRadarLayer({
       // Set to latest past frame (most recent actual radar data)
       setCurrentFrameIndex(data.radar.past.length - 1);
 
-      console.log('[RainRadarLayer] Loaded', allFrames.length, 'frames (', data.radar.past.length, 'past,', data.radar.nowcast.length, 'forecast)');
+      // Frames loaded successfully
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch radar data';
       setError(message);
@@ -131,10 +130,8 @@ export function RainRadarLayer({
 
   // Initial fetch and auto-refresh interval
   useEffect(() => {
-    console.log('[RainRadarLayer] Fetch effect - visible:', visible);
     if (!visible) return;
 
-    console.log('[RainRadarLayer] Starting fetch...');
     fetchFrames();
     const interval = setInterval(fetchFrames, REFRESH_INTERVAL);
 
@@ -143,58 +140,99 @@ export function RainRadarLayer({
 
   // Create custom pane for z-index control
   useEffect(() => {
-    console.log('[RainRadarLayer] Pane effect - map:', map ? 'present' : 'null', 'paneName:', paneName);
     if (!map) return;
 
     if (!map.getPane(paneName)) {
-      console.log('[RainRadarLayer] Creating custom pane:', paneName);
       const pane = map.createPane(paneName);
       // Place radar above wind particles but below popups
       pane.style.zIndex = '490';
-      console.log('[RainRadarLayer] Pane created with z-index 490');
-    } else {
-      console.log('[RainRadarLayer] Pane already exists:', paneName);
     }
   }, [map, paneName]);
 
   // Helper to get or create a cached tile layer for a frame
-  const getOrCreateLayer = useCallback((frame: RainViewerFrame, targetMap: L.Map): L.TileLayer => {
+  const getOrCreateLayer = useCallback((frame: RainViewerFrame, targetMap: L.Map): L.TileLayer | null => {
     const cache = layerCacheRef.current;
 
     if (cache.has(frame.path)) {
       return cache.get(frame.path)!;
     }
 
-    const tileUrl = TILE_URL_TEMPLATE.replace('{path}', frame.path);
-    const layer = L.tileLayer(tileUrl, {
-      opacity: 0, // Start invisible
-      attribution: '&copy; <a href="https://rainviewer.com">RainViewer</a>',
-      tileSize: 512,
-      zoomOffset: -1,
-      pane: paneName,
-    });
+    try {
+      const tileUrl = TILE_URL_TEMPLATE.replace('{path}', frame.path);
+      const layer = L.tileLayer(tileUrl, {
+        opacity: 0, // Start invisible
+        attribution: '&copy; <a href="https://rainviewer.com">RainViewer</a>',
+        tileSize: 512,
+        zoomOffset: -1,
+        pane: paneName,
+        maxNativeZoom: 12, // RainViewer doesn't support zoom levels above 12
+        maxZoom: 18, // Allow zooming but use native tiles
+        minZoom: 1, // Minimum zoom level
+        errorTileUrl: '', // Use empty string for failed tiles instead of showing broken image
+      });
 
-    // Add to map immediately (invisible) to start preloading
-    layer.addTo(targetMap);
-    cache.set(frame.path, layer);
+      // Add error handler to prevent crashes on tile load failures
+      layer.on('tileerror', () => {
+        // Silently handle tile load errors
+      });
 
-    return layer;
+      // Add to map immediately (invisible) to start preloading
+      layer.addTo(targetMap);
+      cache.set(frame.path, layer);
+
+      return layer;
+    } catch (err) {
+      console.error('[RainRadarLayer] Error creating layer:', err);
+      return null;
+    }
   }, [paneName]);
 
-  // Preload all frames when frames change
+  // Cleanup function to remove excess cached layers
+  const cleanupExcessLayers = useCallback((keepIndices: number[]) => {
+    if (!map) return;
+
+    const cache = layerCacheRef.current;
+    const framePaths = new Set(keepIndices.map(i => frames[i]?.path).filter(Boolean));
+
+    // Remove layers that are not in the keep list
+    const pathsToRemove: string[] = [];
+    cache.forEach((layer, path) => {
+      if (!framePaths.has(path)) {
+        if (map.hasLayer(layer)) {
+          map.removeLayer(layer);
+        }
+        pathsToRemove.push(path);
+      }
+    });
+
+    pathsToRemove.forEach(path => cache.delete(path));
+  }, [map, frames]);
+
+  // Load only nearby frames (current, previous, next) instead of all frames
   useEffect(() => {
     if (!map || frames.length === 0 || !visible) return;
 
-    console.log('[RainRadarLayer] Preloading', frames.length, 'frames...');
+    // Determine which frame indices to keep cached (current and neighbors)
+    const indicesToKeep: number[] = [];
+    for (let offset = -1; offset <= 1; offset++) {
+      const idx = (currentFrameIndex + offset + frames.length) % frames.length;
+      if (!indicesToKeep.includes(idx)) {
+        indicesToKeep.push(idx);
+      }
+    }
 
-    // Create layers for all frames (they start with opacity 0)
-    frames.forEach((frame) => {
-      getOrCreateLayer(frame, map);
+    // Create layers only for nearby frames
+    indicesToKeep.forEach((idx) => {
+      const frame = frames[idx];
+      if (frame) {
+        getOrCreateLayer(frame, map);
+      }
     });
 
-    console.log('[RainRadarLayer] All frames preloaded');
+    // Clean up layers that are no longer needed
+    cleanupExcessLayers(indicesToKeep);
 
-    // Cleanup: remove all cached layers when component unmounts or frames change
+    // Cleanup: remove all cached layers when component unmounts
     return () => {
       const cache = layerCacheRef.current;
       cache.forEach((layer) => {
@@ -205,62 +243,70 @@ export function RainRadarLayer({
       cache.clear();
       currentLayerRef.current = null;
     };
-  }, [map, frames, visible, getOrCreateLayer]);
+  }, [map, frames, visible, currentFrameIndex, getOrCreateLayer, cleanupExcessLayers]);
 
   // Handle frame changes with smooth crossfade
   useEffect(() => {
     if (!map || frames.length === 0) return;
 
-    const frame = frames[currentFrameIndex];
-    if (!frame) return;
+    try {
+      const frame = frames[currentFrameIndex];
+      if (!frame) return;
 
-    const cache = layerCacheRef.current;
-    const newLayer = cache.get(frame.path);
-    const oldLayer = currentLayerRef.current;
+      const cache = layerCacheRef.current;
+      const newLayer = cache.get(frame.path);
+      const oldLayer = currentLayerRef.current;
 
-    if (!newLayer) return;
+      if (!newLayer) return;
 
-    // If it's the same layer, just ensure opacity is correct
-    if (newLayer === oldLayer) {
-      newLayer.setOpacity(visible ? opacity : 0);
-      return;
-    }
-
-    // Crossfade: show new layer, hide old layer
-    if (visible) {
-      // Show new layer
-      newLayer.setOpacity(opacity);
-
-      // Hide old layer (don't remove, keep in cache)
-      if (oldLayer && oldLayer !== newLayer) {
-        oldLayer.setOpacity(0);
+      // If it's the same layer, just ensure opacity is correct
+      if (newLayer === oldLayer) {
+        newLayer.setOpacity(visible ? opacity : 0);
+        return;
       }
-    }
 
-    currentLayerRef.current = newLayer;
+      // Crossfade: show new layer, hide old layer
+      if (visible) {
+        // Show new layer
+        newLayer.setOpacity(opacity);
+
+        // Hide old layer (don't remove, keep in cache)
+        if (oldLayer && oldLayer !== newLayer) {
+          oldLayer.setOpacity(0);
+        }
+      }
+
+      currentLayerRef.current = newLayer;
+    } catch (err) {
+      console.error('[RainRadarLayer] Error during frame change:', err);
+    }
   }, [map, frames, currentFrameIndex, opacity, visible]);
 
   // Handle visibility changes
   useEffect(() => {
     if (!map) return;
 
-    const cache = layerCacheRef.current;
+    try {
+      const cache = layerCacheRef.current;
 
-    if (visible) {
-      // Show current frame
-      const frame = frames[currentFrameIndex];
-      if (frame) {
-        const layer = cache.get(frame.path);
-        if (layer) {
-          layer.setOpacity(opacity);
-          currentLayerRef.current = layer;
+      if (visible) {
+        // Show current frame
+        const frame = frames[currentFrameIndex];
+        if (frame) {
+          const layer = cache.get(frame.path);
+          if (layer) {
+            layer.setOpacity(opacity);
+            currentLayerRef.current = layer;
+          }
         }
+      } else {
+        // Hide all layers
+        cache.forEach((layer) => {
+          layer.setOpacity(0);
+        });
       }
-    } else {
-      // Hide all layers
-      cache.forEach((layer) => {
-        layer.setOpacity(0);
-      });
+    } catch (err) {
+      console.error('[RainRadarLayer] Error during visibility change:', err);
     }
   }, [map, visible, frames, currentFrameIndex, opacity]);
 
@@ -334,7 +380,7 @@ export function RainRadarLayer({
 
   return (
     <div
-      className="absolute z-[1000] bg-gray-900/90 backdrop-blur-sm rounded-lg shadow-lg p-3 text-white text-xs"
+      className="absolute z-1000 bg-gray-900/90 backdrop-blur-sm rounded-lg shadow-lg p-3 text-white text-xs"
       style={{ bottom: '120px', right: '10px', minWidth: '180px' }}
     >
       {/* Header */}
@@ -411,16 +457,18 @@ export function RainRadarLayer({
             <input
               type="range"
               min={0}
-              max={frames.length - 1}
+              max={Math.max(0, frames.length - 1)}
               value={currentFrameIndex}
               onChange={handleSliderChange}
               className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
               style={{
-                background: `linear-gradient(to right,
-                  #22d3ee 0%,
-                  #22d3ee ${((pastFrameCount - 1) / (frames.length - 1)) * 100}%,
-                  #f59e0b ${((pastFrameCount - 1) / (frames.length - 1)) * 100}%,
-                  #f59e0b 100%)`
+                background: frames.length > 1
+                  ? `linear-gradient(to right,
+                    #22d3ee 0%,
+                    #22d3ee ${((pastFrameCount - 1) / (frames.length - 1)) * 100}%,
+                    #f59e0b ${((pastFrameCount - 1) / (frames.length - 1)) * 100}%,
+                    #f59e0b 100%)`
+                  : '#22d3ee'
               }}
             />
             {/* Markers */}
@@ -439,7 +487,7 @@ export function RainRadarLayer({
         {PRECIPITATION_SCALE.map((item, index) => (
           <div key={index} className="flex items-center gap-2">
             <div
-              className="w-4 h-3 rounded-sm flex-shrink-0"
+              className="w-4 h-3 rounded-sm shrink-0"
               style={{ backgroundColor: item.color }}
             />
             <span className="text-[10px] w-6">{item.label}</span>

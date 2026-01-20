@@ -44,9 +44,9 @@ interface GridCache {
 // ------------------------------------------------------------------
 
 const PARTICLE_COUNT = 5000;         // High density for professional look
-const PARTICLE_SPEED_SCALE = 2.5;    // Fluid movement speed
-const PARTICLE_MAX_AGE = 150;        // Particles live longer
-const PARTICLE_TRAIL_FADE = 0.96;    // 0.96 = Long, silky trails (Windy style)
+const PARTICLE_SPEED_SCALE = 0.8;    // Slower, graceful movement (matches current particles feel)
+const PARTICLE_MAX_AGE = 180;        // Particles live longer for smoother trails
+const PARTICLE_TRAIL_FADE = 0.97;    // 0.97 = Longer, silkier trails (slower fade)
 const PARTICLE_WIDTH = 1.0;          // Thinner, crisper lines
 
 // FPS Throttling for better mobile performance
@@ -161,12 +161,13 @@ function createGrid(data: WaveGridPoint[]): GridCache | null {
 // ------------------------------------------------------------------
 
 // Configuration for wave heatmap land mask (used for destination-out clipping)
+// Using larger blur radius to prevent heatmap bleeding onto land
 const WAVE_MASK_CONFIG: LandMaskConfig = {
   fillStyle: '#000000', // Solid black for clipping (destination-out composite)
   softEdges: true,
-  blurRadius: 1.5,
+  blurRadius: 4.0,       // Increased blur for smoother coastal transition and to cover edge bleeding
   handleWrapping: true,
-  skipBlurDuringMovement: true, // Performance optimization
+  skipBlurDuringMovement: false, // Always apply blur for consistent masking
 };
 
 // ------------------------------------------------------------------

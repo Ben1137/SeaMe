@@ -132,6 +132,22 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
         preferCanvas: true, // Better performance for particle layers
       }).setView([currentLocation.lat, currentLocation.lng], 8);
 
+      // Patch Leaflet's Canvas renderer to prevent "clearRect on undefined" errors
+      // This can happen during rapid initialization/cleanup cycles
+      const canvasProto = (L.Canvas.prototype as any);
+      if (canvasProto && !canvasProto._patchedClear) {
+        const originalClear = canvasProto._clear;
+        canvasProto._clear = function() {
+          if (!this._ctx) return; // Guard against undefined context
+          try {
+            originalClear.call(this);
+          } catch (e) {
+            // Silently ignore canvas errors during cleanup
+          }
+        };
+        canvasProto._patchedClear = true;
+      }
+
       // Use CartoDB Dark Matter tiles for Windy-style dark map
       L.tileLayer(DARK_MAP_CONFIG.tileUrl, {
         attribution: DARK_MAP_CONFIG.attribution,
