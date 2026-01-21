@@ -14,6 +14,18 @@
 // OPEN-METEO MARINE API
 // ============================================
 
+/**
+ * 15-minute interval data from Marine API
+ * Available for ocean currents with higher temporal resolution
+ */
+export interface MarineApiMinutely15 {
+  time: string[];
+  /** Ocean current velocity in m/s - 15-minute resolution */
+  ocean_current_velocity?: number[];
+  /** Ocean current direction in degrees - 15-minute resolution */
+  ocean_current_direction?: number[];
+}
+
 export interface MarineApiHourly {
   time: string[];
   wave_height?: number[];
@@ -103,6 +115,13 @@ export interface MarineApiResponse {
   elevation?: number;
   hourly_units?: MarineApiHourlyUnits;
   daily_units?: MarineApiDailyUnits;
+  /** 15-minute interval data for ocean currents */
+  minutely_15?: MarineApiMinutely15;
+  minutely_15_units?: {
+    time?: string;
+    ocean_current_velocity?: string;
+    ocean_current_direction?: string;
+  };
   hourly?: MarineApiHourly;
   daily?: MarineApiDaily;
   current?: MarineApiCurrent;
@@ -143,6 +162,7 @@ export interface ForecastApiDaily {
   uv_index_max?: number[];
   precipitation_sum?: number[];
   precipitation_hours?: number[];
+  precipitation_probability_max?: number[];
   wind_speed_10m_max?: number[];
   wind_gusts_10m_max?: number[];
   wind_direction_10m_dominant?: number[];

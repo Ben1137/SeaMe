@@ -12,6 +12,24 @@
 
 import { API_ENDPOINTS, WEATHER_CONSTANTS } from '../constants';
 import { deduplicatedFetch } from '../utils/requestDeduplication';
+import {
+  getPrimaryWeatherModel,
+  getPrimaryMarineModel,
+  getOptimalModels
+} from '../utils/openMeteoConfig';
+
+/**
+ * Get the optimal model for a given location
+ * Uses geolocation-based selection when PREFER_HIGH_RESOLUTION is enabled
+ */
+function getModelForLocation(lat: number, lng: number, isMarine: boolean = false): string {
+  if (WEATHER_CONSTANTS.PREFER_HIGH_RESOLUTION) {
+    return isMarine
+      ? getPrimaryMarineModel(lat, lng, true)
+      : getPrimaryWeatherModel(lat, lng, true);
+  }
+  return WEATHER_CONSTANTS.MODEL;
+}
 
 // ============================================
 // TYPE DEFINITIONS
@@ -302,6 +320,20 @@ export async function fetchMarineGridData(
     const lats = coordinates.map(c => c.lat.toFixed(4)).join(',');
     const lngs = coordinates.map(c => c.lng.toFixed(4)).join(',');
 
+    // Calculate center of bounding box for model selection
+    const centerLat = (bounds.north + bounds.south) / 2;
+    const centerLng = (bounds.east + bounds.west) / 2;
+
+    // Get optimal models for this region based on geolocation
+    const marineModel = getModelForLocation(centerLat, centerLng, true);
+    const weatherModel = getModelForLocation(centerLat, centerLng, false);
+
+    // Log model selection for debugging
+    if (WEATHER_CONSTANTS.PREFER_HIGH_RESOLUTION) {
+      const selection = getOptimalModels(centerLat, centerLng);
+      console.log(`[MarineGridService] Region: ${selection.region} | Marine: ${marineModel} | Weather: ${weatherModel} | Resolution: ~${selection.recommendedResolutionKm}km`);
+    }
+
     // Fetch marine data for all grid points
     // Best Practice: Use cell_selection: 'sea' to prioritize ocean grid cells
     // Requesting comprehensive marine parameters for accurate ocean data
@@ -321,7 +353,7 @@ export async function fetchMarineGridData(
         'sea_surface_temperature', 'sea_level_height_msl'
       ].join(','),
       timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: WEATHER_CONSTANTS.MODEL,
+      models: marineModel,
       cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
     });
 
@@ -332,7 +364,7 @@ export async function fetchMarineGridData(
       longitude: lngs,
       current: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: WEATHER_CONSTANTS.MODEL,
+      models: weatherModel,
       cell_selection: WEATHER_CONSTANTS.LAND_CELL_SELECTION
     });
 

@@ -76,6 +76,29 @@ export interface TideData {
   hourly: { time: string; height: number }[];
 }
 
+export interface HourlyForecastItem {
+  time: string;
+  temperature: number;
+  weatherCode: number;
+  isDay: boolean;
+  precipitationProbability: number;
+  windSpeed: number;
+  windGusts: number;
+}
+
+export interface DailyForecastItem {
+  time: string;
+  code: number;
+  tempMax: number;
+  tempMin: number;
+  sunrise: string;
+  sunset: string;
+  precipitationProbability: number;
+  precipitationSum: number;
+  uvIndexMax: number;
+  windSpeedMax: number;
+}
+
 export interface GeneralWeather {
   temperature: number;
   feelsLike: number;
@@ -87,18 +110,14 @@ export interface GeneralWeather {
   sunrise: string;
   sunset: string;
   moonPhase: string;
-  moonIllumination: number; 
+  moonIllumination: number;
   nextFullMoon: string; // Calculated date of next full moon
-  moonrise: string; 
-  moonset: string; 
-  pressure: number; 
-  visibility: number; 
-  dailyForecast: {
-    time: string;
-    code: number;
-    tempMax: number;
-    tempMin: number;
-  }[];
+  moonrise: string;
+  moonset: string;
+  pressure: number;
+  visibility: number;
+  dailyForecast: DailyForecastItem[];
+  hourlyForecast: HourlyForecastItem[];
 }
 
 export interface MarineWeatherData {

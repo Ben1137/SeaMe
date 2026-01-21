@@ -110,8 +110,8 @@ export const REQUEST_CONFIG = {
 
 // ==================== WEATHER & MARINE CONSTANTS ====================
 export const WEATHER_CONSTANTS = {
-  /** Forecast window in days */
-  FORECAST_DAYS: 7,
+  /** Forecast window in days (10-day forecast like Apple Weather) */
+  FORECAST_DAYS: 10,
 
   /** Hourly data points per day */
   HOURS_PER_DAY: 24,
@@ -124,8 +124,29 @@ export const WEATHER_CONSTANTS = {
    */
   TIMEZONE: 'auto',
 
-  /** Best match model selection */
+  /**
+   * Default model selection - 'best_match' lets Open-Meteo auto-select
+   * When PREFER_HIGH_RESOLUTION is true, geolocation-based selection overrides this
+   */
   MODEL: 'best_match',
+
+  /**
+   * Enable geolocation-based high-resolution model selection
+   * When true, the app selects optimal models based on user's location:
+   * - Europe: ICON Seamless (2km), DWD EWAM (5km marine)
+   * - North America: GFS Seamless (3km), HRRR (3km), NCEP GFS Wave
+   * - Asia-Pacific: ECMWF IFS, ECMWF WAM
+   * - Global: best_match (automatic)
+   * @see packages/core/src/utils/openMeteoConfig.ts for full model selection logic
+   */
+  PREFER_HIGH_RESOLUTION: true,
+
+  /**
+   * Enable 15-minute data for ocean currents
+   * When true, requests minutely_15 data for ocean_current_velocity and ocean_current_direction
+   * Provides higher temporal resolution for real-time current tracking
+   */
+  USE_15_MINUTE_DATA: true,
 
   /**
    * Cell selection for marine data

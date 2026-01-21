@@ -227,7 +227,19 @@
     "highPressure": "High Pressure",
     "normal": "Normal",
     "todaySummary": "Today's Summary",
-    "current": "Current"
+    "current": "Current",
+    "currentWeather": "Current Weather",
+    "hourlyForecast": "24-Hour Forecast",
+    "dailyForecast": "10-Day Forecast",
+    "sunrise": "Sunrise",
+    "sunset": "Sunset",
+    "today": "Today",
+    "chanceOfRain": "Chance of Rain",
+    "windGustsInfo": "Wind gusts up to {{speed}} km/h are making the temperature feel like {{temp}}°.",
+    "cloudyConditions": "Cloudy conditions will continue for the rest of the day.",
+    "clearConditions": "Clear skies expected throughout the day.",
+    "rainyConditions": "Rain expected. Bring an umbrella.",
+    "partlyCloudyConditions": "Partly cloudy conditions expected."
   },
   "moonPhases": {
     "newMoon": "New Moon",

@@ -15,40 +15,82 @@ import { generateTideData, getMoonData } from '../utils/calculations';
 import { getWeatherDescription } from '../utils/formatting';
 import { API_ENDPOINTS, WEATHER_CONSTANTS } from '../constants';
 import { deduplicatedFetch } from '../utils/requestDeduplication';
+import {
+  getPrimaryWeatherModel,
+  getPrimaryMarineModel,
+  getOptimalModels
+} from '../utils/openMeteoConfig';
 
 // Local definitions removed - imported from utils
 
+/**
+ * Get the optimal model for a given location
+ * Uses geolocation-based selection when PREFER_HIGH_RESOLUTION is enabled
+ */
+function getModelForLocation(lat: number, lng: number, isMarine: boolean = false): string {
+  if (WEATHER_CONSTANTS.PREFER_HIGH_RESOLUTION) {
+    return isMarine
+      ? getPrimaryMarineModel(lat, lng, true)
+      : getPrimaryWeatherModel(lat, lng, true);
+  }
+  return WEATHER_CONSTANTS.MODEL;
+}
+
 export const fetchMarineWeather = async (lat: number, lng: number): Promise<MarineWeatherData> => {
   try {
+    // Get optimal models for this location based on geolocation
+    const marineModel = getModelForLocation(lat, lng, true);
+    const weatherModel = getModelForLocation(lat, lng, false);
+
+    // Log model selection for debugging (can be removed in production)
+    if (WEATHER_CONSTANTS.PREFER_HIGH_RESOLUTION) {
+      const selection = getOptimalModels(lat, lng);
+      console.log(`[WeatherService] Location: ${lat.toFixed(2)}, ${lng.toFixed(2)} | Region: ${selection.region} | Marine: ${marineModel} | Weather: ${weatherModel} | Resolution: ~${selection.recommendedResolutionKm}km`);
+    }
+
     // MARINE API: Fetch wave data, sea temp, currents, and tidal data
     // Best Practices Applied:
     // - cell_selection: 'sea' to prioritize ocean grid cells
     // - timezone: 'auto' for user's local timezone
-    // - Added wave_peak_period, wind_wave data, and sea_level_height_msl for tidal info
+    // - Geolocation-based model selection for optimal accuracy
+    // - 15-minute data for ocean currents when enabled
+
+    // Build hourly parameters
+    const hourlyParams = 'wave_height,wave_direction,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_period,swell_wave_peak_period,wind_wave_height,wind_wave_direction,wind_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction,sea_level_height_msl';
+
     const marineParams = new URLSearchParams({
       latitude: lat.toString(),
       longitude: lng.toString(),
-      hourly: 'wave_height,wave_direction,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_period,swell_wave_peak_period,wind_wave_height,wind_wave_direction,wind_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction,sea_level_height_msl',
+      hourly: hourlyParams,
       daily: 'wave_height_max,wave_direction_dominant,wave_period_max,swell_wave_height_max,swell_wave_direction_dominant,swell_wave_period_max,wind_wave_height_max,wind_wave_direction_dominant,wind_wave_period_max',
       current: 'sea_surface_temperature,wave_height,wave_direction,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_period,wind_wave_height,wind_wave_direction,wind_wave_period,ocean_current_velocity,ocean_current_direction,sea_level_height_msl',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
       forecast_days: WEATHER_CONSTANTS.FORECAST_DAYS.toString(),
-      models: WEATHER_CONSTANTS.MODEL,
+      models: marineModel,
       cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
     });
+
+    // Add 15-minute data for ocean currents if enabled
+    if (WEATHER_CONSTANTS.USE_15_MINUTE_DATA) {
+      marineParams.set('minutely_15', 'ocean_current_velocity,ocean_current_direction');
+    }
 
     // FORECAST API: Fetch atmospheric data (Wind, Temp, Pressure)
     // Best Practices Applied:
     // - cell_selection: 'land' for coastal/land data accuracy
     // - timezone: 'auto' for user's local timezone
+    // - Geolocation-based model selection for optimal resolution
+    // - Extended hourly data for 24-hour forecast display
+    // - Extended daily data for 10-day forecast display
     const generalParams = new URLSearchParams({
       latitude: lat.toString(),
       longitude: lng.toString(),
       current: 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure,visibility',
-      daily: 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant',
-      hourly: 'pressure_msl,visibility,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,weather_code,precipitation_probability',
+      daily: 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant',
+      hourly: 'temperature_2m,apparent_temperature,is_day,pressure_msl,visibility,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,weather_code,precipitation_probability',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: WEATHER_CONSTANTS.MODEL,
+      forecast_days: WEATHER_CONSTANTS.FORECAST_DAYS.toString(),
+      models: weatherModel,
       cell_selection: WEATHER_CONSTANTS.LAND_CELL_SELECTION
     });
 
@@ -85,6 +127,36 @@ export const fetchMarineWeather = async (lat: number, lng: number): Promise<Mari
     const estimatedMoonRise = addMinutes(sunriseTime, phaseOffsetHours * 60);
     const estimatedMoonSet = addMinutes(estimatedMoonRise, 12 * 60 + 25);
 
+    // Find current hour index in hourly data for 24-hour forecast starting from now
+    const nowISO = new Date().toISOString().slice(0, 13);
+    let currentHourIndex = hourly.time?.findIndex((t: string) => t.startsWith(nowISO)) || 0;
+    if (currentHourIndex === -1) currentHourIndex = 0;
+
+    // Build hourly forecast for next 24+ hours (including sunrise/sunset markers)
+    const hourlyForecast = hourly.time?.slice(currentHourIndex, currentHourIndex + 26).map((t: string, i: number) => ({
+      time: t,
+      temperature: hourly.temperature_2m?.[currentHourIndex + i] || 0,
+      weatherCode: hourly.weather_code?.[currentHourIndex + i] || 0,
+      isDay: (hourly.is_day?.[currentHourIndex + i] || 0) === 1,
+      precipitationProbability: hourly.precipitation_probability?.[currentHourIndex + i] || 0,
+      windSpeed: hourly.wind_speed_10m?.[currentHourIndex + i] || 0,
+      windGusts: hourly.wind_gusts_10m?.[currentHourIndex + i] || 0
+    })) || [];
+
+    // Build 10-day daily forecast with extended data
+    const dailyForecast = daily.time?.slice(0, 10).map((t: string, i: number) => ({
+      time: t,
+      code: daily.weather_code?.[i] || 0,
+      tempMax: daily.temperature_2m_max?.[i] || 0,
+      tempMin: daily.temperature_2m_min?.[i] || 0,
+      sunrise: daily.sunrise?.[i] || '',
+      sunset: daily.sunset?.[i] || '',
+      precipitationProbability: daily.precipitation_probability_max?.[i] || 0,
+      precipitationSum: daily.precipitation_sum?.[i] || 0,
+      uvIndexMax: daily.uv_index_max?.[i] || 0,
+      windSpeedMax: daily.wind_speed_10m_max?.[i] || 0
+    })) || [];
+
     const general: GeneralWeather = {
       temperature: current.temperature_2m || 0,
       feelsLike: current.apparent_temperature || 0,
@@ -102,12 +174,8 @@ export const fetchMarineWeather = async (lat: number, lng: number): Promise<Mari
       nextFullMoon: nextFullMoon.toISOString(),
       pressure: current.surface_pressure || 0,
       visibility: current.visibility || 0,
-      dailyForecast: daily.time?.slice(0, 3).map((t: string, i: number) => ({
-        time: t,
-        code: daily.weather_code?.[i] || 0,
-        tempMax: daily.temperature_2m_max?.[i] || 0,
-        tempMin: daily.temperature_2m_min?.[i] || 0
-      })) || []
+      dailyForecast,
+      hourlyForecast
     };
 
     const tides = generateTideData(lat, lng);
@@ -181,8 +249,12 @@ export const fetchMarineWeather = async (lat: number, lng: number): Promise<Mari
 
 export const fetchPointForecast = async (lat: number, lng: number): Promise<PointForecast> => {
   try {
+    // Get optimal models for this location
+    const marineModel = getModelForLocation(lat, lng, true);
+    const weatherModel = getModelForLocation(lat, lng, false);
+
     // Marine data with cell_selection: 'sea' for ocean accuracy
-    // Best Practice: Request comprehensive marine parameters
+    // Best Practice: Request comprehensive marine parameters with optimal model
     const params = new URLSearchParams({
       latitude: lat.toString(),
       longitude: lng.toString(),
@@ -199,7 +271,7 @@ export const fetchPointForecast = async (lat: number, lng: number): Promise<Poin
         'sea_surface_temperature'
       ].join(','),
       timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: WEATHER_CONSTANTS.MODEL,
+      models: marineModel,
       cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
     });
 
@@ -209,7 +281,7 @@ export const fetchPointForecast = async (lat: number, lng: number): Promise<Poin
         longitude: lng.toString(),
         current: 'temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m',
         timezone: WEATHER_CONSTANTS.TIMEZONE,
-        models: WEATHER_CONSTANTS.MODEL,
+        models: weatherModel,
         cell_selection: WEATHER_CONSTANTS.LAND_CELL_SELECTION
     });
 
@@ -273,17 +345,26 @@ export const fetchPointForecast = async (lat: number, lng: number): Promise<Poin
 
 export const fetchHourlyPointForecast = async (lat: number, lng: number): Promise<DetailedPointForecast | null> => {
   try {
+    // Get optimal models for this location
+    const marineModel = getModelForLocation(lat, lng, true);
+    const weatherModel = getModelForLocation(lat, lng, false);
+
     // We combine calls here to get best of both worlds: Accurate Wind + Accurate Waves
-    // Best Practice: Use cell_selection to optimize for each data type
+    // Best Practice: Use cell_selection to optimize for each data type + geolocation-based model
     const marineParams = new URLSearchParams({
       latitude: lat.toString(),
       longitude: lng.toString(),
       hourly: 'wave_height,wave_period,swell_wave_height,swell_wave_period,ocean_current_velocity,ocean_current_direction,sea_level_height_msl',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
       forecast_days: '2',
-      models: WEATHER_CONSTANTS.MODEL,
+      models: marineModel,
       cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
     });
+
+    // Add 15-minute data for ocean currents if enabled
+    if (WEATHER_CONSTANTS.USE_15_MINUTE_DATA) {
+      marineParams.set('minutely_15', 'ocean_current_velocity,ocean_current_direction');
+    }
 
     const forecastParams = new URLSearchParams({
       latitude: lat.toString(),
@@ -291,7 +372,7 @@ export const fetchHourlyPointForecast = async (lat: number, lng: number): Promis
       hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
       forecast_days: '2',
-      models: WEATHER_CONSTANTS.MODEL,
+      models: weatherModel,
       cell_selection: WEATHER_CONSTANTS.LAND_CELL_SELECTION
     });
 
@@ -341,6 +422,12 @@ export const fetchBulkPointForecast = async (coordinates: {lat: number, lng: num
   const lats = coordinates.map(c => c.lat.toFixed(4)).join(',');
   const lngs = coordinates.map(c => c.lng.toFixed(4)).join(',');
 
+  // For bulk requests, use the model based on the center of the bounding box
+  const centerLat = coordinates.reduce((sum, c) => sum + c.lat, 0) / coordinates.length;
+  const centerLng = coordinates.reduce((sum, c) => sum + c.lng, 0) / coordinates.length;
+  const marineModel = getModelForLocation(centerLat, centerLng, true);
+  const weatherModel = getModelForLocation(centerLat, centerLng, false);
+
   try {
     // Marine data with cell_selection: 'sea' for accurate ocean data
     const marineParams = new URLSearchParams({
@@ -348,7 +435,7 @@ export const fetchBulkPointForecast = async (coordinates: {lat: number, lng: num
       longitude: lngs,
       current: 'wave_height,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction,wind_wave_height,wind_wave_direction,wind_wave_period',
       timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: WEATHER_CONSTANTS.MODEL,
+      models: marineModel,
       cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
     });
 
@@ -358,7 +445,7 @@ export const fetchBulkPointForecast = async (coordinates: {lat: number, lng: num
         longitude: lngs,
         current: 'temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m',
         timezone: WEATHER_CONSTANTS.TIMEZONE,
-        models: WEATHER_CONSTANTS.MODEL,
+        models: weatherModel,
         cell_selection: WEATHER_CONSTANTS.LAND_CELL_SELECTION
     });
 
