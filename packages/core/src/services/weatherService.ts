@@ -128,8 +128,15 @@ export const fetchMarineWeather = async (lat: number, lng: number): Promise<Mari
     const estimatedMoonSet = addMinutes(estimatedMoonRise, 12 * 60 + 25);
 
     // Find current hour index in hourly data for 24-hour forecast starting from now
-    const nowISO = new Date().toISOString().slice(0, 13);
-    let currentHourIndex = hourly.time?.findIndex((t: string) => t.startsWith(nowISO)) || 0;
+    // When timezone='auto', API returns times in local timezone (e.g., "2026-01-21T18:00")
+    // We need to match against local time, not UTC
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const currentDay = String(now.getDate()).padStart(2, '0');
+    const currentHour = String(now.getHours()).padStart(2, '0');
+    const nowLocalISO = `${currentYear}-${currentMonth}-${currentDay}T${currentHour}`;
+    let currentHourIndex = hourly.time?.findIndex((t: string) => t.startsWith(nowLocalISO)) || 0;
     if (currentHourIndex === -1) currentHourIndex = 0;
 
     // Build hourly forecast for next 24+ hours (including sunrise/sunset markers)
@@ -234,8 +241,8 @@ export const fetchMarineWeather = async (lat: number, lng: number): Promise<Mari
         visibility: current.visibility || 0,
         seaLevel: tides.currentHeight,
         uvIndex: (() => {
-           const nowISO = new Date().toISOString().slice(0, 13);
-           const idx = hourly.time?.findIndex((t: string) => t.startsWith(nowISO)) || -1;
+           // Use the same local time calculation as above
+           const idx = hourly.time?.findIndex((t: string) => t.startsWith(nowLocalISO)) || -1;
            return idx !== -1 ? (hourly.uv_index?.[idx] || 0) : 0;
         })()
       }
@@ -388,8 +395,14 @@ export const fetchHourlyPointForecast = async (lat: number, lng: number): Promis
     }
 
     // Slice next 24 hours starting from now
-    const nowISO = new Date().toISOString().slice(0, 13);
-    let startIndex = marineData.hourly.time?.findIndex((t: string) => t.startsWith(nowISO)) || 0;
+    // Use local time to match API response with timezone='auto'
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const currentDay = String(now.getDate()).padStart(2, '0');
+    const currentHour = String(now.getHours()).padStart(2, '0');
+    const nowLocalISO = `${currentYear}-${currentMonth}-${currentDay}T${currentHour}`;
+    let startIndex = marineData.hourly.time?.findIndex((t: string) => t.startsWith(nowLocalISO)) || 0;
     if (startIndex === -1) startIndex = 0;
 
     const endIndex = startIndex + 24;
