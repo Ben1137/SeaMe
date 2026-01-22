@@ -46,3 +46,12 @@ nul
 # VS Code Extensions (Claude plugins)
 .agent/
 .shared/
+
+# Fix/Debug Documentation (temporary files)
+*_FIX*.md
+*_FIXES_*.md
+*_VERIFICATION*.md
+*_TEST_GUIDE*.md
+*_DEEP_DIVE*.md
+VERIFY_*.md
+IMPLEMENTATION_SUMMARY.md

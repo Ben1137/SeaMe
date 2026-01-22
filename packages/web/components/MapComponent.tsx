@@ -6,9 +6,12 @@ import { Trash2, Navigation, MapPin, Wind, Layers, Waves, X, Clock, Activity, Dr
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { useTranslation } from 'react-i18next';
-import { MaskedVelocityLayer } from './map/MaskedVelocityLayer';
+import { MaskedVelocityLayerV2 } from './map/MaskedVelocityLayerV2';
 import { WaveHeatmapLayer } from './map/WaveHeatmapLayer';
-import { SmoothWaveHeatmap } from './map/SmoothWaveHeatmap';
+import { SmoothWaveHeatmapV2 } from './map/SmoothWaveHeatmapV2';
+// Legacy imports kept for reference:
+// import { MaskedVelocityLayer } from './map/MaskedVelocityLayer';
+// import { SmoothWaveHeatmap } from './map/SmoothWaveHeatmap';
 import { RainRadarLayer } from './map/RainRadarLayer';
 // import { CrispLandMask, CrispLandMaskStyles } from './map/CrispLandMask'; // Removed: SmoothWaveHeatmap now handles land clipping internally
 import { ColorScaleLegend } from './map/ColorScaleLegend';
@@ -1061,9 +1064,9 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
         animationSpeed={600}
       />
 
-      {/* Advanced Visualization Layers - Using MaskedVelocityLayer for sea-only rendering */}
+      {/* Advanced Visualization Layers - Using V2 components for zero-bleed land masking */}
       {advancedLayer === 'WIND_PARTICLES' && (
-        <MaskedVelocityLayer
+        <MaskedVelocityLayerV2
           data={velocityData}
           type="wind"
           visible={true}
@@ -1075,13 +1078,13 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
           frameRate={UNIFIED_PARTICLE_CONFIG.frameRate}
           opacity={UNIFIED_PARTICLE_CONFIG.opacity}
           enableLandMask={true}
-          maskResolution="50m"
-          maskOpacity={0.9}
+          maskResolution="auto"
+          maskExpansion={2}
         />
       )}
 
       {advancedLayer === 'CURRENT_PARTICLES' && (
-        <MaskedVelocityLayer
+        <MaskedVelocityLayerV2
           data={velocityData}
           type="currents"
           visible={true}
@@ -1093,17 +1096,18 @@ const MapComponent: React.FC<MapComponentProps> = ({ currentLocation }) => {
           frameRate={UNIFIED_PARTICLE_CONFIG.frameRate}
           opacity={UNIFIED_PARTICLE_CONFIG.opacity}
           enableLandMask={true}
-          maskResolution="50m"
-          maskOpacity={0.9}
+          maskResolution="auto"
+          maskExpansion={2}
         />
       )}
 
       {advancedLayer === 'WAVE_HEATMAP' && (
-        <SmoothWaveHeatmap
+        <SmoothWaveHeatmapV2
           gridData={waveHeatmapData}
           visible={true}
           opacity={0.9}
           map={mapInstance.current}
+          maskResolution="auto"
         />
       )}
 

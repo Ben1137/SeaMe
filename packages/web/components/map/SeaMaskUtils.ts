@@ -33,7 +33,7 @@ export interface SeaMaskConfig {
 // Constants
 // ------------------------------------------------------------------
 
-const GEOJSON_BASE_PATH = '/SeaYou/geojson';
+const GEOJSON_BASE_PATH = '/geojson';
 const REMOTE_BASE_PATH = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson';
 
 const LAND_URLS = {
@@ -119,6 +119,9 @@ function pointInBoundingBox(point: [number, number], polygon: [number, number][]
 // SeaMask Class - Main utility for land/sea detection
 // ------------------------------------------------------------------
 
+// Resolution blacklist to prevent thrashing
+const FAILED_RESOLUTIONS = new Set<string>();
+
 export class SeaMask {
   private landFeatures: any = null;
   private isLoaded = false;
@@ -155,37 +158,55 @@ export class SeaMask {
   }
 
   private async _loadData(): Promise<void> {
+    // CHECK BLACKLIST: If this resolution previously failed, throw immediately
+    if (FAILED_RESOLUTIONS.has(this.resolution)) {
+      const error = new Error(`[SeaMask] Resolution ${this.resolution} is blacklisted (previous 404)`);
+      console.error(error.message);
+      throw error;
+    }
+
     const urls = LAND_URLS[this.resolution];
 
     // Try local first
     try {
+      console.log(`[SeaMask] Attempting to load ${urls.local}`);
       const response = await fetch(urls.local);
       if (response.ok) {
         this.landFeatures = await response.json();
-        console.log(`[SeaMask] Loaded land data from local (${this.resolution})`);
+        console.log(`[SeaMask] ✓ Loaded land data from local (${this.resolution})`);
         this._buildSpatialIndex();
         this.isLoaded = true;
         this._notifyLoadCallbacks();
         return;
+      } else if (response.status === 404) {
+        console.warn(`[SeaMask] Local file not found (404): ${urls.local}`);
       }
     } catch (error) {
-      // Continue to fallback
+      console.warn(`[SeaMask] Local fetch error:`, error);
     }
 
     // Try remote fallback
     try {
+      console.log(`[SeaMask] Falling back to remote: ${urls.fallback}`);
       const response = await fetch(urls.fallback);
       if (response.ok) {
         this.landFeatures = await response.json();
-        console.log(`[SeaMask] Loaded land data from remote fallback (${this.resolution})`);
+        console.log(`[SeaMask] ✓ Loaded land data from remote fallback (${this.resolution})`);
         this._buildSpatialIndex();
         this.isLoaded = true;
         this._notifyLoadCallbacks();
         return;
+      } else if (response.status === 404) {
+        console.error(`[SeaMask] Remote fallback also 404: ${urls.fallback}`);
       }
     } catch (error) {
-      console.error('[SeaMask] Failed to load land data:', error);
+      console.error('[SeaMask] Remote fetch error:', error);
     }
+
+    // BLACKLIST this resolution to prevent infinite retries
+    console.error(`[SeaMask] ⨯ Both local and remote failed for ${this.resolution} - BLACKLISTING`);
+    FAILED_RESOLUTIONS.add(this.resolution);
+    throw new Error(`Failed to load land data for resolution ${this.resolution}`);
   }
 
   /**
@@ -417,6 +438,11 @@ export class CachedLandMaskRenderer {
   private regenerateTimer: ReturnType<typeof setTimeout> | null = null;
   private isRegenerating: boolean = false;
 
+  // ATOMIC RENDERING: Track if we have a valid cache
+  // If not, first render will be SYNCHRONOUS (blocking)
+  private hasValidCache: boolean = false;
+  private isFirstRender: boolean = true;
+
   // Chunked rendering state
   private chunkRenderAbort: boolean = false;
   private currentChunkIndex: number = 0;
@@ -496,12 +522,18 @@ export class CachedLandMaskRenderer {
 
   /**
    * Invalidate the cache to force a full redraw
+   * CRITICAL: Must reset hasValidCache to trigger SYNCHRONOUS re-render
+   * This ensures land mask is fully ready before heatmap renders after zoom
    */
   invalidateCache(): void {
     this.cachedZoom = -1;
     this.cachedWidth = 0;
     this.cachedHeight = 0;
     this.cachedOrigin = null;
+
+    // CRITICAL FIX: Reset hasValidCache to force SYNCHRONOUS re-render
+    // Without this, the heatmap renders before mask is ready after zoom changes
+    this.hasValidCache = false;
 
     // Cancel any pending regeneration
     if (this.regenerateTimer) {
@@ -512,11 +544,19 @@ export class CachedLandMaskRenderer {
     // Abort any in-progress chunked rendering
     this.chunkRenderAbort = true;
     this.currentChunkIndex = 0;
+    this.isRegenerating = false;
   }
 
   /**
    * Render the land mask to the target canvas
    * Uses cached rendering when possible for optimal performance
+   *
+   * ATOMIC RENDERING GUARANTEE:
+   * - First render: SYNCHRONOUS (blocks until complete)
+   * - Subsequent renders: use existing cache, regenerate async
+   * - Never renders partial/stale content
+   *
+   * CRITICAL: All context operations are guarded to prevent "reading 'save'" crash
    */
   render(
     targetCanvas: HTMLCanvasElement,
@@ -525,8 +565,17 @@ export class CachedLandMaskRenderer {
   ): void {
     if (!this.landFeatures) return;
 
-    const ctx = targetCanvas.getContext('2d');
-    if (!ctx) return;
+    // CRITICAL GUARDS: Verify canvas is valid
+    if (!targetCanvas || !targetCanvas.width || !targetCanvas.height) return;
+
+    let ctx: CanvasRenderingContext2D | null;
+    try {
+      ctx = targetCanvas.getContext('2d');
+      // Verify context is valid (prevents "reading 'save'" crash)
+      if (!ctx || typeof ctx.save !== 'function') return;
+    } catch (e) {
+      return; // Canvas is in invalid state
+    }
 
     const zoom = Math.round(map.getZoom());
     const width = targetCanvas.width;
@@ -539,9 +588,18 @@ export class CachedLandMaskRenderer {
       height !== this.cachedHeight ||
       !this.cacheCanvas;
 
-    if (needsRedraw && !this.isRegenerating) {
-      // Debounce regeneration - wait 100ms after last call
-      // This prevents regenerating during rapid zoom animations
+    // ATOMIC RENDERING FIX: First render must be SYNCHRONOUS
+    // This ensures the first frame has a complete mask
+    if (this.isFirstRender || (!this.hasValidCache && needsRedraw)) {
+      console.log('[CachedLandMaskRenderer] SYNCHRONOUS first render');
+      this._renderToCacheSync(map, width, height, origin);
+      this.cachedZoom = zoom;
+      this.cachedWidth = width;
+      this.cachedHeight = height;
+      this.hasValidCache = true;
+      this.isFirstRender = false;
+    } else if (needsRedraw && !this.isRegenerating) {
+      // Subsequent redraws can be async (chunked) since we have a valid cache
       if (this.regenerateTimer) {
         clearTimeout(this.regenerateTimer);
       }
@@ -558,8 +616,8 @@ export class CachedLandMaskRenderer {
     // Clear target canvas
     ctx.clearRect(0, 0, width, height);
 
-    // If we have a cached canvas, just draw it (very fast!)
-    if (this.cacheCanvas && this.cachedOrigin) {
+    // Only draw if we have a VALID cache - never draw partial content
+    if (this.hasValidCache && this.cacheCanvas && this.cachedOrigin) {
       // Calculate offset from cached origin to current origin
       const offsetX = Math.round(origin.x - this.cachedOrigin.x);
       const offsetY = Math.round(origin.y - this.cachedOrigin.y);
@@ -570,9 +628,97 @@ export class CachedLandMaskRenderer {
   }
 
   /**
+   * SYNCHRONOUS cache rendering (blocking)
+   * Used for first render to ensure mask is ready before any content
+   *
+   * CRITICAL: Guards all context operations to prevent crash
+   */
+  private _renderToCacheSync(
+    map: L.Map,
+    width: number,
+    height: number,
+    origin: L.Point
+  ): void {
+    // REDUCED PADDING: 10% instead of 50% to save memory
+    const padding = Math.min(width, height) * 0.1;
+    const cacheWidth = Math.round(width + padding * 2);
+    const cacheHeight = Math.round(height + padding * 2);
+
+    // Limit max canvas size to prevent memory issues
+    const MAX_CANVAS_SIZE = 2048;
+    const finalWidth = Math.min(cacheWidth, MAX_CANVAS_SIZE);
+    const finalHeight = Math.min(cacheHeight, MAX_CANVAS_SIZE);
+
+    // GUARD: Validate dimensions
+    if (finalWidth <= 0 || finalHeight <= 0) return;
+
+    if (!this.cacheCanvas ||
+        this.cacheCanvas.width !== finalWidth ||
+        this.cacheCanvas.height !== finalHeight) {
+      this.cacheCanvas = document.createElement('canvas');
+      this.cacheCanvas.width = finalWidth;
+      this.cacheCanvas.height = finalHeight;
+    }
+
+    // CRITICAL GUARD: Verify context is valid
+    let ctx: CanvasRenderingContext2D | null;
+    try {
+      ctx = this.cacheCanvas.getContext('2d');
+      if (!ctx || typeof ctx.save !== 'function') return;
+    } catch (e) {
+      return; // Canvas is in invalid state
+    }
+
+    // Adjust origin for padding
+    const actualPaddingX = (finalWidth - width) / 2;
+    const actualPaddingY = (finalHeight - height) / 2;
+    const paddedOrigin = L.point(
+      Math.round(origin.x - actualPaddingX),
+      Math.round(origin.y - actualPaddingY)
+    );
+    this.cachedOrigin = L.point(origin.x - actualPaddingX, origin.y - actualPaddingY);
+
+    // Clear cache canvas
+    ctx.clearRect(0, 0, finalWidth, finalHeight);
+    ctx.fillStyle = this.config.fillStyle || '#000000';
+
+    // Get viewport bounds for culling
+    const bounds = map.getBounds();
+    const viewMinLng = bounds.getWest() - 10;
+    const viewMaxLng = bounds.getEast() + 10;
+    const viewMinLat = bounds.getSouth() - 10;
+    const viewMaxLat = bounds.getNorth() + 10;
+
+    // Calculate world width for wrapping
+    const worldWidth = getWorldWidthInPixels(map);
+
+    // Filter visible polygons
+    const visiblePolygons = this.polygonBounds.filter(poly =>
+      !(poly.maxLng < viewMinLng || poly.minLng > viewMaxLng ||
+        poly.maxLat < viewMinLat || poly.minLat > viewMaxLat)
+    );
+
+    // SYNCHRONOUS: Draw ALL polygons in one go (no chunking)
+    for (const poly of visiblePolygons) {
+      drawPolygonToCanvasSimple(ctx, map, poly.coordinates, paddedOrigin);
+
+      if (this.config.handleWrapping && worldWidth > 0) {
+        const wrappedOriginLeft = L.point(paddedOrigin.x + worldWidth, paddedOrigin.y);
+        const wrappedOriginRight = L.point(paddedOrigin.x - worldWidth, paddedOrigin.y);
+        drawPolygonToCanvasSimple(ctx, map, poly.coordinates, wrappedOriginLeft);
+        drawPolygonToCanvasSimple(ctx, map, poly.coordinates, wrappedOriginRight);
+      }
+    }
+
+    console.log(`[CachedLandMaskRenderer] Sync render complete: ${visiblePolygons.length}/${this.polygonBounds.length} polygons`);
+  }
+
+  /**
    * Render land polygons to the cache canvas using CHUNKED RENDERING
    * This prevents main thread blocking by processing polygons in batches
    * and yielding to the browser between chunks using requestAnimationFrame
+   *
+   * CRITICAL: Guards all context operations to prevent crash
    */
   private _renderToCache(
     map: L.Map,
@@ -593,6 +739,12 @@ export class CachedLandMaskRenderer {
     const finalWidth = Math.min(cacheWidth, MAX_CANVAS_SIZE);
     const finalHeight = Math.min(cacheHeight, MAX_CANVAS_SIZE);
 
+    // GUARD: Validate dimensions
+    if (finalWidth <= 0 || finalHeight <= 0) {
+      this.isRegenerating = false;
+      return;
+    }
+
     if (!this.cacheCanvas ||
         this.cacheCanvas.width !== finalWidth ||
         this.cacheCanvas.height !== finalHeight) {
@@ -601,8 +753,15 @@ export class CachedLandMaskRenderer {
       this.cacheCanvas.height = finalHeight;
     }
 
-    const ctx = this.cacheCanvas.getContext('2d');
-    if (!ctx) {
+    // CRITICAL GUARD: Verify context is valid
+    let ctx: CanvasRenderingContext2D | null;
+    try {
+      ctx = this.cacheCanvas.getContext('2d');
+      if (!ctx || typeof ctx.save !== 'function') {
+        this.isRegenerating = false;
+        return;
+      }
+    } catch (e) {
       this.isRegenerating = false;
       return;
     }
@@ -762,6 +921,8 @@ function drawPolygonToCanvasSimple(
  * This is the legacy non-cached version, kept for compatibility
  *
  * For better performance, use CachedLandMaskRenderer instead
+ *
+ * CRITICAL: Guards all context operations to prevent crash
  */
 export function renderLandMaskToCanvas(
   canvas: HTMLCanvasElement,
@@ -771,8 +932,18 @@ export function renderLandMaskToCanvas(
   config: LandMaskConfig = {},
   isMoving: boolean = false
 ): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx || !landFeatures) return;
+  // CRITICAL GUARDS: Verify canvas is valid
+  if (!canvas || !canvas.width || !canvas.height) return;
+  if (!landFeatures) return;
+
+  let ctx: CanvasRenderingContext2D | null;
+  try {
+    ctx = canvas.getContext('2d');
+    // Verify context is valid (prevents "reading 'save'" crash)
+    if (!ctx || typeof ctx.save !== 'function') return;
+  } catch (e) {
+    return; // Canvas is in invalid state
+  }
 
   const mergedConfig = { ...DEFAULT_MASK_CONFIG, ...config };
   const { width, height } = canvas;

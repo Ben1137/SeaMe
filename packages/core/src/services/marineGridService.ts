@@ -19,6 +19,17 @@ import {
 } from '../utils/openMeteoConfig';
 
 /**
+ * Maximum coordinates per model before hitting API limits
+ * dwd_ewam has stricter limits than global models
+ */
+const MAX_COORDINATES_BY_MODEL: Record<string, number> = {
+  'dwd_ewam': 100,      // European model has stricter limits (~100 safe)
+  'ecmwf_wam': 256,     // Global wave model, larger limit
+  'best_match': 256,    // Auto-select, safe default
+  'default': 256        // Fallback
+};
+
+/**
  * Get the optimal model for a given location
  * Uses geolocation-based selection when PREFER_HIGH_RESOLUTION is enabled
  */
@@ -29,6 +40,19 @@ function getModelForLocation(lat: number, lng: number, isMarine: boolean = false
       : getPrimaryWeatherModel(lat, lng, true);
   }
   return WEATHER_CONSTANTS.MODEL;
+}
+
+/**
+ * Get fallback model when primary model fails
+ * Returns 'best_match' as universal fallback
+ */
+function getFallbackModel(currentModel: string): string {
+  // If already using best_match, there's no fallback
+  if (currentModel === 'best_match') {
+    return '';
+  }
+  // For regional models, fall back to best_match
+  return 'best_match';
 }
 
 // ============================================
@@ -315,6 +339,7 @@ export async function fetchMarineGridData(
   try {
     // Generate grid coordinates
     const coordinates = generateGridCoordinates(bounds, resolution);
+    const coordinateCount = coordinates.length;
 
     // Open-Meteo supports comma-separated lists for bulk queries
     const lats = coordinates.map(c => c.lat.toFixed(4)).join(',');
@@ -325,37 +350,67 @@ export async function fetchMarineGridData(
     const centerLng = (bounds.east + bounds.west) / 2;
 
     // Get optimal models for this region based on geolocation
-    const marineModel = getModelForLocation(centerLat, centerLng, true);
+    let marineModel = getModelForLocation(centerLat, centerLng, true);
     const weatherModel = getModelForLocation(centerLat, centerLng, false);
+
+    // Check if coordinate count exceeds model limit - auto-fallback to best_match
+    const maxCoords = MAX_COORDINATES_BY_MODEL[marineModel] || MAX_COORDINATES_BY_MODEL['default'];
+    if (coordinateCount > maxCoords) {
+      console.warn(`[MarineGridService] ${coordinateCount} coordinates exceeds ${marineModel} limit (${maxCoords}), falling back to best_match`);
+      marineModel = 'best_match';
+    }
 
     // Log model selection for debugging
     if (WEATHER_CONSTANTS.PREFER_HIGH_RESOLUTION) {
       const selection = getOptimalModels(centerLat, centerLng);
-      console.log(`[MarineGridService] Region: ${selection.region} | Marine: ${marineModel} | Weather: ${weatherModel} | Resolution: ~${selection.recommendedResolutionKm}km`);
+      console.log(`[MarineGridService] Region: ${selection.region} | Marine: ${marineModel} | Weather: ${weatherModel} | Resolution: ~${selection.recommendedResolutionKm}km | Coords: ${coordinateCount}`);
     }
 
-    // Fetch marine data for all grid points
-    // Best Practice: Use cell_selection: 'sea' to prioritize ocean grid cells
-    // Requesting comprehensive marine parameters for accurate ocean data
-    const marineParams = new URLSearchParams({
-      latitude: lats,
-      longitude: lngs,
-      current: [
-        // Significant wave data (combined wind waves + swell)
-        'wave_height', 'wave_direction', 'wave_period', 'wave_peak_period',
-        // Swell data (long-period waves from distant storms)
-        'swell_wave_height', 'swell_wave_direction', 'swell_wave_period',
-        // Wind wave data (locally generated waves)
-        'wind_wave_height', 'wind_wave_direction', 'wind_wave_period',
-        // Ocean currents
-        'ocean_current_velocity', 'ocean_current_direction',
-        // Sea temperature and level
-        'sea_surface_temperature', 'sea_level_height_msl'
-      ].join(','),
-      timezone: WEATHER_CONSTANTS.TIMEZONE,
-      models: marineModel,
-      cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
-    });
+    // Helper function to fetch marine data with fallback
+    const fetchMarineWithFallback = async (model: string): Promise<any> => {
+      const marineParams = new URLSearchParams({
+        latitude: lats,
+        longitude: lngs,
+        current: [
+          // Significant wave data (combined wind waves + swell)
+          'wave_height', 'wave_direction', 'wave_period', 'wave_peak_period',
+          // Swell data (long-period waves from distant storms)
+          'swell_wave_height', 'swell_wave_direction', 'swell_wave_period',
+          // Wind wave data (locally generated waves)
+          'wind_wave_height', 'wind_wave_direction', 'wind_wave_period',
+          // Ocean currents
+          'ocean_current_velocity', 'ocean_current_direction',
+          // Sea temperature and level
+          'sea_surface_temperature', 'sea_level_height_msl'
+        ].join(','),
+        timezone: WEATHER_CONSTANTS.TIMEZONE,
+        models: model,
+        cell_selection: WEATHER_CONSTANTS.MARINE_CELL_SELECTION
+      });
+
+      try {
+        return await deduplicatedFetch<any>(
+          `${API_ENDPOINTS.MARINE}?${marineParams.toString()}`,
+          undefined,
+          { ttl: 3000 }
+        );
+      } catch (error: any) {
+        // If this model failed with 400 and we have a fallback, try it
+        if (error?.message?.includes('400') || error?.status === 400) {
+          const fallback = getFallbackModel(model);
+          if (fallback) {
+            console.warn(`[MarineGridService] ${model} failed with 400, trying fallback: ${fallback}`);
+            marineParams.set('models', fallback);
+            return await deduplicatedFetch<any>(
+              `${API_ENDPOINTS.MARINE}?${marineParams.toString()}`,
+              undefined,
+              { ttl: 3000 }
+            );
+          }
+        }
+        throw error;
+      }
+    };
 
     // Fetch atmospheric data (wind) from forecast API
     // Best Practice: Use cell_selection: 'land' for wind data accuracy
@@ -370,7 +425,7 @@ export async function fetchMarineGridData(
 
     // Use deduplicatedFetch to prevent duplicate API calls
     const [marineResponses, forecastResponses] = await Promise.all([
-      deduplicatedFetch<any>(`${API_ENDPOINTS.MARINE}?${marineParams.toString()}`, undefined, { ttl: 3000 }),
+      fetchMarineWithFallback(marineModel),
       deduplicatedFetch<any>(`${API_ENDPOINTS.FORECAST}?${forecastParams.toString()}`, undefined, { ttl: 3000 })
     ]);
 
